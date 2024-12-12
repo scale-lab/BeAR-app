@@ -45,7 +45,8 @@ public class MainActivity extends AppCompatActivity {
                         // testing python interpreter
                         Settings s = new Settings(RunType.CONV2D);
                         MTLBox mtlBox = new MTLBox(s);
-                        mtlBox.run();
+                        Bitmap processed = mtlBox.run(bitmap);
+                        iv.setImageBitmap(processed);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
