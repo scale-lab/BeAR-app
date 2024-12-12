@@ -29,15 +29,11 @@ android {
     buildFeatures {
         viewBinding true
     }
-    packagingOptions {
-        exclude 'META-INF/INDEX.LIST'
-        exclude 'META-INF/io.netty.versions.properties'
-        exclude 'META-INF/versions/9/OSGI-INF/MANIFEST.MF'
-    }
 }
 
 dependencies {
-
+    implementation libs.pytorch.android
+    implementation libs.pytorch.android.torchvision
     implementation libs.appcompat
     implementation libs.material
     implementation libs.constraintlayout
@@ -48,5 +44,4 @@ dependencies {
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core
-    implementation libs.jython.slim
 }
