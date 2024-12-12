@@ -40,13 +40,20 @@ public class MainActivity extends AppCompatActivity {
                     Log.d("PhotoPicker", "Selected URI: " + uri);
                     try {
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
-                        ImageView iv = findViewById(R.id.imageView);
-                        iv.setImageBitmap(bitmap);
+                        // ImageView iv = findViewById(R.id.imageView);
+                        // iv.setImageBitmap(bitmap);
+                        System.out.println("CONV2D RUN .. bitmap config: " + bitmap.getConfig());
                         // testing python interpreter
                         Settings s = new Settings(RunType.CONV2D);
                         MTLBox mtlBox = new MTLBox(s);
-                        Bitmap processed = mtlBox.run(bitmap);
-                        iv.setImageBitmap(processed);
+                        Bitmap processed = mtlBox.run(bitmap, this);
+                        System.out.println("CONV2D RUN .. mtlBox.run complete, should have bitmap." +
+                                "height: " + processed.getHeight() + ", width: " + processed.getWidth()
+                        + ", config: " + processed.getConfig() + ", is recy: " + processed.isRecycled());
+                        ImageView iv = findViewById(R.id.imageView);
+                        Bitmap displayBitmap = processed.copy(Bitmap.Config.ARGB_8888, true);
+                        iv.setImageBitmap(displayBitmap);
+                        System.out.println("CONV2D RUN .. displayed!!!");
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
