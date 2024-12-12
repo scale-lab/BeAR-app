@@ -2,7 +2,6 @@ package com.example.arbenchapp;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.os.Environment;
 
 import com.example.arbenchapp.datatypes.Settings;
 
@@ -12,13 +11,9 @@ import org.pytorch.Tensor;
 import org.pytorch.torchvision.TensorImageUtils;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Arrays;
 
 public class MTLBox {
 
@@ -32,8 +27,7 @@ public class MTLBox {
         return this.settings;
     }
 
-    public Bitmap run(Bitmap bitmap, Context context) throws IOException{
-        System.out.println("HELLO RUN!");
+    public Bitmap run(Bitmap bitmap, Context context) {
         Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         switch (this.settings.getRunType()) {
             case NONE:
@@ -96,13 +90,9 @@ public class MTLBox {
         }
     }
 
-    public Bitmap conv2d(Bitmap bitmap, Context context, String filename) throws IOException {
-        System.out.println("CONV2D RUN!!");
-        System.out.println("CONV2D RUN path: " + Environment.getExternalStorageDirectory());
+    public Bitmap conv2d(Bitmap bitmap, Context context, String filename) {
         File blur_file = new File(context.getFilesDir(), filename);
         if (!blur_file.exists()) {
-            System.out.println("CONV2D RUN blur_file doesn't exist");
-            System.out.println("CONV2D RUN .. all assets: " + Arrays.toString(context.getAssets().list("")));
             try (InputStream is = context.getAssets().open(filename);
                  OutputStream os = Files.newOutputStream(blur_file.toPath())) {
                 byte[] buf = new byte[1024];
@@ -114,14 +104,9 @@ public class MTLBox {
                 System.err.println("Exception occurred with conv2d run: " + e.toString());
             }
         }
-        System.out.println("CONV2D RUN .. File should've been made.");
         Module blur_model = Module.load(blur_file.getPath());
-        System.out.println("CONV2D RUN .. loaded model");
         Tensor inp = BitmapToTensor(bitmap);
-        System.out.println("CONV2D RUN .. bitmap to tensor acquired");
-        System.out.println("CONV2D RUN .. inp shape: " + Arrays.toString(inp.shape()));
         Tensor out = blur_model.forward(IValue.from(inp)).toTensor();
-        System.out.println("CONV2D RUN .. model should've been run");
         return TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight());
     }
 

@@ -15,15 +15,19 @@ import com.google.android.material.navigation.NavigationView;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.navigation.NavController;
 import androidx.navigation.Navigation;
 import androidx.navigation.ui.AppBarConfiguration;
 import androidx.navigation.ui.NavigationUI;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.appcompat.app.AppCompatActivity;
+
 import android.widget.ImageView;
+import android.widget.TextView;
 
 import com.example.arbenchapp.databinding.ActivityMainBinding;
+import org.apache.commons.lang3.time.StopWatch;
 
 import java.io.IOException;
 
@@ -39,21 +43,28 @@ public class MainActivity extends AppCompatActivity {
                 if (uri != null) {
                     Log.d("PhotoPicker", "Selected URI: " + uri);
                     try {
+                        // BUG: switching tabs messes with image positioning
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
-                        // ImageView iv = findViewById(R.id.imageView);
-                        // iv.setImageBitmap(bitmap);
                         System.out.println("CONV2D RUN .. bitmap config: " + bitmap.getConfig());
                         // testing python interpreter
                         Settings s = new Settings(RunType.CONV2D);
                         MTLBox mtlBox = new MTLBox(s);
+                        StopWatch stopwatch = StopWatch.createStarted();
                         Bitmap processed = mtlBox.run(bitmap, this);
+                        stopwatch.stop();
+                        Long nanotime = stopwatch.getNanoTime();
+                        Double millitime = nanotime / 1000000.0;
+                        TextView tv = findViewById(R.id.text_home);
+                        String timeDisplay = millitime + " ms";
+                        tv.setText(timeDisplay);
                         System.out.println("CONV2D RUN .. mtlBox.run complete, should have bitmap." +
                                 "height: " + processed.getHeight() + ", width: " + processed.getWidth()
                         + ", config: " + processed.getConfig() + ", is recy: " + processed.isRecycled());
                         ImageView iv = findViewById(R.id.imageView);
-                        Bitmap displayBitmap = processed.copy(Bitmap.Config.ARGB_8888, true);
-                        iv.setImageBitmap(displayBitmap);
+                        iv.setImageBitmap(processed);
                         System.out.println("CONV2D RUN .. displayed!!!");
+                        ImageView uv = findViewById(R.id.unfilteredView);
+                        uv.setImageBitmap(bitmap);
                     } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
@@ -93,6 +104,19 @@ public class MainActivity extends AppCompatActivity {
         NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
         NavigationUI.setupActionBarWithNavController(this, navController, mAppBarConfiguration);
         NavigationUI.setupWithNavController(navigationView, navController);
+
+        // Adjust imageView
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        ImageView iv = findViewById(R.id.imageView);
+        ConstraintLayout.LayoutParams iv_params = (ConstraintLayout.LayoutParams) iv.getLayoutParams();
+        iv_params.bottomMargin = (int) (screenHeight * 0.5);
+        iv.setLayoutParams(iv_params);
+
+        // Adjust unfilteredView
+        ImageView uv = findViewById(R.id.unfilteredView);
+        ConstraintLayout.LayoutParams uv_params = (ConstraintLayout.LayoutParams) uv.getLayoutParams();
+        uv_params.topMargin = (int) (screenHeight * 0.5);
+        uv.setLayoutParams(uv_params);
     }
 
     @Override
