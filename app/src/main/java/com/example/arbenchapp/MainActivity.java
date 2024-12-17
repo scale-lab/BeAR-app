@@ -7,6 +7,7 @@ import android.util.Log;
 import android.view.View;
 import android.view.Menu;
 
+import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.google.android.material.snackbar.Snackbar;
@@ -49,19 +50,19 @@ public class MainActivity extends AppCompatActivity {
                         // testing python interpreter
                         Settings s = new Settings(RunType.CONV2D);
                         MTLBox mtlBox = new MTLBox(s);
-                        StopWatch stopwatch = StopWatch.createStarted();
-                        Bitmap processed = mtlBox.run(bitmap, this);
-                        stopwatch.stop();
-                        Long nanotime = stopwatch.getNanoTime();
-                        Double millitime = nanotime / 1000000.0;
+
+                        MTLBoxStruct processed = mtlBox.run(bitmap, this);
+                        Bitmap bm = processed.getBitmap();
+                        Double tm = processed.getTime();
+
                         TextView tv = findViewById(R.id.text_home);
-                        String timeDisplay = millitime + " ms";
+                        String timeDisplay = tm + " ms";
                         tv.setText(timeDisplay);
                         System.out.println("CONV2D RUN .. mtlBox.run complete, should have bitmap." +
-                                "height: " + processed.getHeight() + ", width: " + processed.getWidth()
-                        + ", config: " + processed.getConfig() + ", is recy: " + processed.isRecycled());
+                                "height: " + bm.getHeight() + ", width: " + bm.getWidth()
+                        + ", config: " + bm.getConfig() + ", is recy: " + bm.isRecycled());
                         ImageView iv = findViewById(R.id.imageView);
-                        iv.setImageBitmap(processed);
+                        iv.setImageBitmap(bm);
                         System.out.println("CONV2D RUN .. displayed!!!");
                         ImageView uv = findViewById(R.id.unfilteredView);
                         uv.setImageBitmap(bitmap);
