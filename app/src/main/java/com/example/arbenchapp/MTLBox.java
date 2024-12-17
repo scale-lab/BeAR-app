@@ -3,8 +3,10 @@ package com.example.arbenchapp;
 import android.content.Context;
 import android.graphics.Bitmap;
 
+import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.Settings;
 
+import org.apache.commons.lang3.time.StopWatch;
 import org.pytorch.IValue;
 import org.pytorch.Module;
 import org.pytorch.Tensor;
@@ -27,15 +29,17 @@ public class MTLBox {
         return this.settings;
     }
 
-    public Bitmap run(Bitmap bitmap, Context context) {
+    public MTLBoxStruct run(Bitmap bitmap, Context context) {
         Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        Double default_tm = 0.0;
+        MTLBoxStruct default_mbs = new MTLBoxStruct(default_bm, default_tm);
         switch (this.settings.getRunType()) {
             case NONE:
-                return default_bm;
+                return default_mbs;
             case CONV2D:
                 return conv2d(bitmap, context, "gaussian_blur.pt");
             case TORCH:
-                return default_bm;
+                return default_mbs;
             default:
                 return conv2d(bitmap, context, "gaussian_blur.pt");
         }
@@ -90,7 +94,7 @@ public class MTLBox {
         }
     }
 
-    public Bitmap conv2d(Bitmap bitmap, Context context, String filename) {
+    public MTLBoxStruct conv2d(Bitmap bitmap, Context context, String filename) {
         File blur_file = new File(context.getFilesDir(), filename);
         if (!blur_file.exists()) {
             try (InputStream is = context.getAssets().open(filename);
@@ -106,8 +110,15 @@ public class MTLBox {
         }
         Module blur_model = Module.load(blur_file.getPath());
         Tensor inp = BitmapToTensor(bitmap);
+
+        StopWatch stopwatch = StopWatch.createStarted();
         Tensor out = blur_model.forward(IValue.from(inp)).toTensor();
-        return TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight());
+        stopwatch.stop();
+
+        long ntm = stopwatch.getNanoTime();
+        Double mtm = ntm / 1000000.0;
+        Bitmap bm = TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight());
+        return new MTLBoxStruct(bm, mtm);
     }
 
 }
