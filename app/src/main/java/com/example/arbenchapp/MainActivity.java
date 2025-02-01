@@ -48,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
                         System.out.println("CONV2D RUN .. bitmap config: " + bitmap.getConfig());
                         // testing python interpreter
-                        Settings s = new Settings(RunType.CONV2D);
+                        Settings s = new Settings(RunType.DEEPLABV3);
                         MTLBox mtlBox = new MTLBox(s);
 
                         MTLBoxStruct processed = mtlBox.run(bitmap, this);
@@ -66,7 +66,7 @@ public class MainActivity extends AppCompatActivity {
                         System.out.println("CONV2D RUN .. displayed!!!");
                         ImageView uv = findViewById(R.id.unfilteredView);
                         uv.setImageBitmap(bitmap);
-                    } catch (IOException e) {
+                    } catch (Exception e) {
                         throw new RuntimeException(e);
                     }
                 } else {

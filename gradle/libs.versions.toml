@@ -15,6 +15,7 @@ navigationUi = "2.6.0"
 pytorch_android = "1.13.0"
 pytorch_android_torchvision = "1.12.2"
 firebaseCrashlyticsBuildtools = "3.0.2"
+toolsCore = "1.0.0-alpha10"
 
 [libraries]
 commons-lang3 = { module = "org.apache.commons:commons-lang3", version.ref = "commonsLang3" }
@@ -32,6 +33,7 @@ navigation-ui = { group = "androidx.navigation", name = "navigation-ui", version
 pytorch_android = { module = "org.pytorch:pytorch_android", version.ref = "pytorch_android" }
 pytorch_android_torchvision = { module = "org.pytorch:pytorch_android_torchvision", version.ref = "pytorch_android_torchvision" }
 firebase-crashlytics-buildtools = { group = "com.google.firebase", name = "firebase-crashlytics-buildtools", version.ref = "firebaseCrashlyticsBuildtools" }
+tools-core = { group = "androidx.privacysandbox.tools", name = "tools-core", version.ref = "toolsCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
