@@ -9,6 +9,7 @@ import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.improvemodels.ImageConverter;
 import com.example.arbenchapp.improvemodels.InputPreparation;
 import com.example.arbenchapp.improvemodels.ParallelInference;
+import com.example.arbenchapp.monitor.HardwareMonitor;
 
 import org.apache.commons.lang3.time.StopWatch;
 import org.pytorch.IValue;
@@ -21,6 +22,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.util.concurrent.Future;
+import java.util.Map;
 
 public class MTLBox {
 
@@ -37,7 +39,8 @@ public class MTLBox {
     public MTLBoxStruct run(Bitmap bitmap, Context context) throws Exception {
         Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         Double default_tm = 0.0;
-        MTLBoxStruct default_mbs = new MTLBoxStruct(default_bm, default_tm);
+        HardwareMonitor.HardwareMetrics default_metrics = null;
+        MTLBoxStruct default_mbs = new MTLBoxStruct(default_bm, default_tm, default_metrics);
         switch (this.settings.getRunType()) {
             case NONE:
                 return default_mbs;
@@ -163,10 +166,14 @@ public class MTLBox {
         // System.out.println("CONV2D .. input prep");
         // Tensor[] inputs = InputPreparation.prepareInputBatch(ImageConverter.bitmapToFloat2D(bitmap), batchSize);
 
-        StopWatch stopwatch = StopWatch.createStarted();
-        Tensor out = model.forward(IValue.from(inp)).toTensor();
-        stopwatch.stop();
-        System.out.println("CONV2D RUN .. model ran");
+        HardwareMonitor.PyTorchModelMonitor ptmm = new HardwareMonitor.PyTorchModelMonitor(model, context);
+        HardwareMonitor.HardwareMetrics res = ptmm.executeAndMonitor(IValue.from(inp));
+        System.out.println("CONV2D .. " + res.toString());
+
+//        StopWatch stopwatch = StopWatch.createStarted();
+//        Tensor out = model.forward(IValue.from(inp)).toTensor();
+//        stopwatch.stop();
+//        System.out.println("CONV2D RUN .. model ran");
 
 //        System.out.println("CONV2D .. parallel inference");
 //        ParallelInference inference = new ParallelInference(file.getPath(), 1);
@@ -179,12 +186,15 @@ public class MTLBox {
 //        System.out.println("CONV2D .. image converter");
 //        Tensor res = ImageConverter.combineTensorFutures(results);
 
-        long ntm = stopwatch.getNanoTime();
-        Double mtm = ntm / 1000000.0;
-        Bitmap bm = settings.getRunType() == RunType.DEEPLABV3 ?
+        Double mtm = res.executionTimeMs;
+        Tensor out = res.output;
+        System.out.println("CONV2D .. able to convert stuff");
+        Bitmap bm = out != null ? (settings.getRunType() == RunType.DEEPLABV3 ?
                 TensorToBW(out, bitmap.getWidth(), bitmap.getHeight()) :
-                TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight());
-        return new MTLBoxStruct(bm, mtm);
+                TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight()))
+                : null;
+        System.out.println("CONV2D .. made bitmap, is null: " + (bitmap == null));
+        return new MTLBoxStruct(bm, mtm, res);
     }
 
 }

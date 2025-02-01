@@ -10,12 +10,14 @@ import android.view.Menu;
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
+import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.navigation.NavigationView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.navigation.NavController;
 import androidx.navigation.Navigation;
@@ -31,6 +33,8 @@ import com.example.arbenchapp.databinding.ActivityMainBinding;
 import org.apache.commons.lang3.time.StopWatch;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -48,19 +52,14 @@ public class MainActivity extends AppCompatActivity {
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
                         System.out.println("CONV2D RUN .. bitmap config: " + bitmap.getConfig());
                         // testing python interpreter
-                        Settings s = new Settings(RunType.DEEPLABV3);
+                        Settings s = new Settings(RunType.CONV2D);
                         MTLBox mtlBox = new MTLBox(s);
 
                         MTLBoxStruct processed = mtlBox.run(bitmap, this);
                         Bitmap bm = processed.getBitmap();
-                        Double tm = processed.getTime();
 
                         TextView tv = findViewById(R.id.text_home);
-                        String timeDisplay = tm + " ms";
-                        tv.setText(timeDisplay);
-                        System.out.println("CONV2D RUN .. mtlBox.run complete, should have bitmap." +
-                                "height: " + bm.getHeight() + ", width: " + bm.getWidth()
-                        + ", config: " + bm.getConfig() + ", is recy: " + bm.isRecycled());
+                        tv.setText(createDisplayString(processed));
                         ImageView iv = findViewById(R.id.imageView);
                         iv.setImageBitmap(bm);
                         System.out.println("CONV2D RUN .. displayed!!!");
@@ -132,5 +131,53 @@ public class MainActivity extends AppCompatActivity {
         NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
         return NavigationUI.navigateUp(navController, mAppBarConfiguration)
                 || super.onSupportNavigateUp();
+    }
+
+    public String createDisplayString(MTLBoxStruct processed) {
+        Double tm = processed.getTime();
+        HardwareMonitor.HardwareMetrics metrics = processed.getMetrics();
+        String[] messages = getMessages(tm, metrics);
+        StringBuilder displayStrBuilt = new StringBuilder();
+        for (String m : messages) {
+            displayStrBuilt.append(m).append("\n");
+        }
+        String displayStr = displayStrBuilt.toString();
+        if (displayStr.endsWith("\n")) {
+            displayStr = displayStr.substring(0, displayStr.length() - 1);
+        }
+        return displayStr;
+    }
+
+    private static String [] getMessages(Double tm, HardwareMonitor.HardwareMetrics metrics) {
+        String nullMetricsMessage = "ERR: Returned NULL metrics";
+        int decimalPoints = 2;
+        String timeDisplay = "Runtime: " + tm + " ms";
+        String memoryUsageDisplay = metrics != null ?
+                "Memory usage: " + round(metrics.memoryUsageMB, decimalPoints) + " mb" :
+                nullMetricsMessage;
+        String memoryDeltaDisplay = metrics != null ?
+                "Memory delta: " + round(metrics.memoryDeltaMB, decimalPoints) + " mb" :
+                nullMetricsMessage;
+        String cpuUsagePercentDisplay = metrics != null ?
+                "CPU Usage Percent: " + round(metrics.cpuUsagePercent, decimalPoints) + "%" :
+                nullMetricsMessage;
+        String cpuUsageDeltaDisplay = metrics != null ?
+                "CPU Usage Percent Delta: " + round(metrics.cpuUsageDelta, decimalPoints) + "%" :
+                nullMetricsMessage;
+        return new String[]{
+                timeDisplay,
+                memoryUsageDisplay,
+                memoryDeltaDisplay,
+                cpuUsagePercentDisplay,
+                cpuUsageDeltaDisplay
+        };
+    }
+
+    public static double round(double value, int places) {
+        if (places < 0) throw new IllegalArgumentException();
+
+        BigDecimal bd = BigDecimal.valueOf(value);
+        bd = bd.setScale(places, RoundingMode.HALF_UP);
+        return bd.doubleValue();
     }
 }
