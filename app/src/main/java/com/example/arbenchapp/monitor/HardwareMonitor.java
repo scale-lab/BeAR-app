@@ -11,8 +11,11 @@ import androidx.privacysandbox.tools.core.model.Type;
 
 import org.pytorch.Module;
 import org.pytorch.IValue;
+import org.pytorch.Tensor;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Locale;
@@ -33,100 +36,65 @@ public class HardwareMonitor {
     }
 
     public static class HardwareMetrics {
+        public double executionTimeMs;
         public double cpuUsagePercent;
+        public double cpuUsageDelta;
         public double memoryUsageMB;
-        public boolean isUsingGPU;
-        public Map<String, Long> modelExecutionStats;
+        public double memoryDeltaMB;
+        public double threadCpuTimeMs;
+        public Tensor output;
 
         @NonNull
         @Override
         public String toString() {
-            return String.format(Locale.ROOT, "CPU Usage: %.2f%%, Memory: %.2f MB, GPU: %b, Model Stats: %s",
-                    cpuUsagePercent, memoryUsageMB, isUsingGPU, modelExecutionStats.toString());
+            return String.format(Locale.ROOT,
+                    "Execution Time: %.2f ms, CPU Usage Delta: %.2f, Memory Usage: %.2f MB, Memory Delta: %.2f, Thread CPU Time: %.2f ms",
+                    executionTimeMs, cpuUsageDelta, memoryUsageMB, memoryDeltaMB, threadCpuTimeMs);
         }
     }
 
     public HardwareMetrics getMetrics() {
         HardwareMetrics metrics = new HardwareMetrics();
+        metrics.executionTimeMs = 0.0;
         metrics.cpuUsagePercent = getCpuUsage();
+        metrics.cpuUsageDelta = 0.0;
         metrics.memoryUsageMB = getMemoryUsage();
-        metrics.isUsingGPU = false; //checkGPUUsage();
-        metrics.modelExecutionStats = new HashMap<>();
+        metrics.memoryDeltaMB = 0.0;
+        metrics.threadCpuTimeMs = getThreadCpuTimeMs();
+        metrics.output = null;
         return metrics;
     }
 
     private double getCpuUsage() {
         try {
-            long[] cpuUsage = new long[2];
-            if (readCPUUsage(cpuUsage)) {
-                long cpuTime = cpuUsage[0];
-                long appTime = cpuUsage[1];
+            long currentCpuTime = Debug.threadCpuTimeNanos();
+            double cpuDelta = (currentCpuTime - lastCpuTime) / 1_000_000.0;
+            lastCpuTime = currentCpuTime;
 
-                if (lastCpuTime == 0 && lastAppCpuTime == 0) {
-                    lastCpuTime = cpuTime;
-                    lastAppCpuTime = appTime;
-                    return 0;
-                }
+            int processors = Runtime.getRuntime().availableProcessors();
 
-                double cpuUse = 100.0 * (appTime - lastAppCpuTime) / (cpuTime - lastCpuTime);
-                lastCpuTime = cpuTime;
-                lastAppCpuTime = appTime;
-                return cpuUse;
-            }
+            return (cpuDelta / (1000.0 * processors)) * 100.0;
         } catch (Exception e) {
-            Log.e(TAG, "Error getting CPU usage", e);
+            Log.e(TAG, "CONV2D .. Error reading CPU usage", e);
+            return 0.0;
         }
-        return 0;
-    }
-
-    private boolean readCPUUsage(long[] usage) {
-        try {
-            File[] files = new File("/proc").listFiles();
-            if (files != null) {
-                long totalTime = 0;
-                long appTime = 0;
-
-                // Read total CPU time
-                File stat = new File("/proc/stat");
-                if (stat.exists()) {
-                    // Implementation of reading /proc/stat
-                    // This is a simplified version - you'd need to parse the actual file
-                    totalTime = System.currentTimeMillis(); // placeholder
-                }
-
-                // Read app CPU time
-                File appStat = new File("/proc/" + pid + "/stat");
-                if (appStat.exists()) {
-                    // Implementation of reading app's stat
-                    // This is a simplified version - you'd need to parse the actual file
-                    appTime = Debug.threadCpuTimeNanos() / 1000000L;
-                }
-
-                usage[0] = totalTime;
-                usage[1] = appTime;
-                return true;
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error reading CPU usage", e);
-        }
-        return false;
     }
 
     private double getMemoryUsage() {
-        ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-        activityManager.getMemoryInfo(memoryInfo);
+        try {
+            Debug.MemoryInfo memInfo = new Debug.MemoryInfo();
+            Debug.getMemoryInfo(memInfo);
 
-        Debug.MemoryInfo memInfo = new Debug.MemoryInfo();
-        Debug.getMemoryInfo(memInfo);
-
-        return memInfo.getTotalPss() / 1024.0; // Convert to MB
+            return memInfo.getTotalPss() / 1024.0; // Convert to MB
+        } catch (Exception e) {
+            Log.e(TAG, "CONV2D .. Error getting memory usage", e);
+            return 0.0;
+        }
     }
 
-//    private boolean checkGPUUsage() {
-//        // Note: This is a simplified check. For more accurate results,
-//        // you'll need to use device-specific APIs or check PyTorch's internal state
-//        return org.pytorch.Device.Type.CUDA.equals(org.pytorch.Device.Type.CUDA);
-//    }
+    private long getThreadCpuTimeMs() {
+        return Debug.threadCpuTimeNanos() / 1_000_000; // Convert to milliseconds
+    }
 
     public static class PyTorchModelMonitor {
         private final Module model;
@@ -138,28 +106,35 @@ public class HardwareMonitor {
             this.hardwareMonitor = new HardwareMonitor(context);
         }
 
-        public Map<String, Object> executeAndMonitor(IValue input) {
-            Map<String, Object> metrics = new HashMap<>();
-            long startTime = System.nanoTime();
+        public HardwareMetrics executeAndMonitor(IValue input) {
+            HardwareMetrics metrics = new HardwareMetrics();
 
             // Get pre-execution metrics
             HardwareMetrics preMetrics = hardwareMonitor.getMetrics();
+            long startTime = System.nanoTime();
 
             // Execute model
-            IValue output = model.forward(input);
+            Tensor output = model.forward(input).toTensor();
 
             // Get post-execution metrics
-            HardwareMetrics postMetrics = hardwareMonitor.getMetrics();
             long endTime = System.nanoTime();
+            HardwareMetrics postMetrics = hardwareMonitor.getMetrics();
 
             // Calculate execution time
             long executionTime = (endTime - startTime) / 1_000_000; // Convert to milliseconds
+            double cpuUsageDelta = postMetrics.cpuUsagePercent - preMetrics.cpuUsagePercent;
+            System.out.println("CONV2D .. Post percent: " + postMetrics.cpuUsagePercent +
+                    ", pre percent: " + preMetrics.cpuUsagePercent);
+            double memoryDelta = postMetrics.memoryUsageMB - preMetrics.memoryUsageMB;
 
             // Store metrics
-            metrics.put("executionTimeMs", executionTime);
-            metrics.put("cpuUsageDelta", postMetrics.cpuUsagePercent - preMetrics.cpuUsagePercent);
-            metrics.put("memoryUsageMB", postMetrics.memoryUsageMB);
-            metrics.put("isUsingGPU", postMetrics.isUsingGPU);
+            metrics.executionTimeMs = executionTime;
+            metrics.cpuUsagePercent = postMetrics.cpuUsagePercent;
+            metrics.cpuUsageDelta = cpuUsageDelta;
+            metrics.memoryUsageMB = postMetrics.memoryUsageMB;
+            metrics.memoryDeltaMB = memoryDelta;
+            metrics.threadCpuTimeMs = postMetrics.threadCpuTimeMs;
+            metrics.output = output;
 
             lastExecutionTime = executionTime;
             return metrics;
