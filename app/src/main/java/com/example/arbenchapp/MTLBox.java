@@ -4,7 +4,11 @@ import android.content.Context;
 import android.graphics.Bitmap;
 
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
+import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
+import com.example.arbenchapp.improvemodels.ImageConverter;
+import com.example.arbenchapp.improvemodels.InputPreparation;
+import com.example.arbenchapp.improvemodels.ParallelInference;
 
 import org.apache.commons.lang3.time.StopWatch;
 import org.pytorch.IValue;
@@ -16,6 +20,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.util.concurrent.Future;
 
 public class MTLBox {
 
@@ -29,7 +34,7 @@ public class MTLBox {
         return this.settings;
     }
 
-    public MTLBoxStruct run(Bitmap bitmap, Context context) {
+    public MTLBoxStruct run(Bitmap bitmap, Context context) throws Exception {
         Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         Double default_tm = 0.0;
         MTLBoxStruct default_mbs = new MTLBoxStruct(default_bm, default_tm);
@@ -37,11 +42,12 @@ public class MTLBox {
             case NONE:
                 return default_mbs;
             case CONV2D:
-                return conv2d(bitmap, context, "gaussian_blur.pt");
-            case TORCH:
-                return default_mbs;
+                return runFromPt(bitmap, context, "gaussian_blur.pt");
+            case DEEPLABV3:
+                System.out.println("CONV2D RUN .. running deeplabv3");
+                return runFromPt(bitmap, context, "deeplabv3.pt");
             default:
-                return conv2d(bitmap, context, "gaussian_blur.pt");
+                return runFromPt(bitmap, context, "gaussian_blur.pt");
         }
     }
 
@@ -94,30 +100,90 @@ public class MTLBox {
         }
     }
 
-    public MTLBoxStruct conv2d(Bitmap bitmap, Context context, String filename) {
-        File blur_file = new File(context.getFilesDir(), filename);
-        if (!blur_file.exists()) {
+    public Bitmap TensorToBW(Tensor tensor, int width, int height) {
+        // Step 1: Extract tensor data as a float array
+        float[] tensorData = tensor.getDataAsFloatArray();
+
+        // Step 2: Create an empty bitmap
+        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+
+        int numClasses = 21; // Number of classes in the output tensor
+        int[] pixels = new int[width * height];
+
+        // Step 3: Iterate through each pixel and find the class with the maximum value
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int pixelIndex = y * width + x;
+                int maxClassIndex = 0;
+                float maxValue = tensorData[pixelIndex];
+
+                // Compare logits for all classes at this pixel
+                for (int c = 1; c < numClasses; c++) {
+                    float value = tensorData[c * width * height + pixelIndex];
+                    if (value > maxValue) {
+                        maxValue = value;
+                        maxClassIndex = c;
+                    }
+                }
+
+                // Convert class index to grayscale (scale between 0-255)
+                int gray = (int) ((maxClassIndex / (float) (numClasses - 1)) * 255);
+                pixels[pixelIndex] = 0xFF000000 | (gray << 16) | (gray << 8) | gray;
+            }
+        }
+
+        // Step 4: Set pixel data into the bitmap
+        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
+
+        return bitmap;
+    }
+
+    public MTLBoxStruct runFromPt(Bitmap bitmap, Context context, String filename) throws Exception {
+        File file = new File(context.getFilesDir(), filename);
+        if (!file.exists()) {
+            System.out.println("CONV2D RUN .. file doesn't exist");
             try (InputStream is = context.getAssets().open(filename);
-                 OutputStream os = Files.newOutputStream(blur_file.toPath())) {
+                 OutputStream os = Files.newOutputStream(file.toPath())) {
                 byte[] buf = new byte[1024];
                 int read;
                 while ((read = is.read(buf)) != -1) {
                     os.write(buf, 0, read);
                 }
             } catch (Exception e) {
-                System.err.println("Exception occurred with conv2d run: " + e.toString());
+                System.err.println("CONV2D RUN .. Exception occurred with runFromPt run: " + e.toString());
             }
         }
-        Module blur_model = Module.load(blur_file.getPath());
+        System.out.println("CONV2D RUN .. file exists");
+
+        Module model = Module.load(file.getPath());
+        System.out.println("CONV2D RUN .. model loaded");
+
+        //int batchSize = 16;
         Tensor inp = BitmapToTensor(bitmap);
+        // System.out.println("CONV2D .. input prep");
+        // Tensor[] inputs = InputPreparation.prepareInputBatch(ImageConverter.bitmapToFloat2D(bitmap), batchSize);
 
         StopWatch stopwatch = StopWatch.createStarted();
-        Tensor out = blur_model.forward(IValue.from(inp)).toTensor();
+        Tensor out = model.forward(IValue.from(inp)).toTensor();
         stopwatch.stop();
+        System.out.println("CONV2D RUN .. model ran");
+
+//        System.out.println("CONV2D .. parallel inference");
+//        ParallelInference inference = new ParallelInference(file.getPath(), 1);
+//        Future<Tensor>[] results = new Future[batchSize];
+//        StopWatch stopwatch = StopWatch.createStarted();
+//        for (int i = 0; i < batchSize; i++) {
+//            results[i] = inference.inferAsync(inputs[i], i);
+//        }
+//        stopwatch.stop();
+//        System.out.println("CONV2D .. image converter");
+//        Tensor res = ImageConverter.combineTensorFutures(results);
 
         long ntm = stopwatch.getNanoTime();
         Double mtm = ntm / 1000000.0;
-        Bitmap bm = TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight());
+        Bitmap bm = settings.getRunType() == RunType.DEEPLABV3 ?
+                TensorToBW(out, bitmap.getWidth(), bitmap.getHeight()) :
+                TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight());
         return new MTLBoxStruct(bm, mtm);
     }
 
