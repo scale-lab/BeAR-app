@@ -9,6 +9,7 @@ import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.improvemodels.ImageConverter;
 import com.example.arbenchapp.improvemodels.InputPreparation;
 import com.example.arbenchapp.improvemodels.ParallelInference;
+import com.example.arbenchapp.improvemodels.PythonRunner;
 
 import org.apache.commons.lang3.time.StopWatch;
 import org.pytorch.IValue;
@@ -24,6 +25,7 @@ import java.util.concurrent.Future;
 
 public class MTLBox {
 
+    private PythonRunner pythonRunner;
     private final Settings settings;
 
     public MTLBox(Settings settings) {
@@ -42,7 +44,8 @@ public class MTLBox {
             case NONE:
                 return default_mbs;
             case CONV2D:
-                return runFromPt(bitmap, context, "gaussian_blur.pt");
+                return runFromScript(bitmap, context, "models/gaussian_blur.py");
+                //return runFromPt(bitmap, context, "gaussian_blur.pt");
             case DEEPLABV3:
                 System.out.println("CONV2D RUN .. running deeplabv3");
                 return runFromPt(bitmap, context, "deeplabv3.pt");
@@ -136,6 +139,11 @@ public class MTLBox {
         bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
 
         return bitmap;
+    }
+
+    public MTLBoxStruct runFromScript(Bitmap bitmap, Context context, String filename) throws Exception {
+        pythonRunner = new PythonRunner(context);
+        return pythonRunner.runFromScript(bitmap, filename);
     }
 
     public MTLBoxStruct runFromPt(Bitmap bitmap, Context context, String filename) throws Exception {
