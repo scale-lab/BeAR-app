@@ -11,13 +11,11 @@ import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
-import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.navigation.NavigationView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
 import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.navigation.NavController;
 import androidx.navigation.Navigation;
@@ -30,9 +28,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.example.arbenchapp.databinding.ActivityMainBinding;
-import org.apache.commons.lang3.time.StopWatch;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -52,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
                         System.out.println("CONV2D RUN .. bitmap config: " + bitmap.getConfig());
                         // testing python interpreter
-                        Settings s = new Settings(RunType.CONV2D);
+                        Settings s = new Settings(RunType.MTL, 224, 224);
                         MTLBox mtlBox = new MTLBox(s);
 
                         MTLBoxStruct processed = mtlBox.run(bitmap, this);
@@ -60,8 +56,10 @@ public class MainActivity extends AppCompatActivity {
 
                         TextView tv = findViewById(R.id.text_home);
                         tv.setText(createDisplayString(processed));
-                        ImageView iv = findViewById(R.id.imageView);
-                        iv.setImageBitmap(bm);
+                        ImageView iv1 = findViewById(R.id.filteredView1);
+                        iv1.setImageBitmap(bm);
+                        ImageView iv2 = findViewById(R.id.filteredView2);
+                        iv2.setImageBitmap(bm);
                         System.out.println("CONV2D RUN .. displayed!!!");
                         ImageView uv = findViewById(R.id.unfilteredView);
                         uv.setImageBitmap(bitmap);
@@ -107,7 +105,7 @@ public class MainActivity extends AppCompatActivity {
 
         // Adjust imageView
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        ImageView iv = findViewById(R.id.imageView);
+        ImageView iv = findViewById(R.id.filteredView1);
         ConstraintLayout.LayoutParams iv_params = (ConstraintLayout.LayoutParams) iv.getLayoutParams();
         iv_params.bottomMargin = (int) (screenHeight * 0.5);
         iv.setLayoutParams(iv_params);

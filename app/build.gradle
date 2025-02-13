@@ -34,6 +34,7 @@ android {
 dependencies {
     implementation libs.pytorch.android
     implementation libs.pytorch.android.torchvision
+    implementation libs.onnxruntime.android
     implementation libs.appcompat
     implementation libs.material
     implementation libs.constraintlayout

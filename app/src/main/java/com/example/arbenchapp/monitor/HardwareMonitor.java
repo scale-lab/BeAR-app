@@ -7,19 +7,12 @@ import android.os.Process;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
-import androidx.privacysandbox.tools.core.model.Type;
 
 import org.pytorch.Module;
 import org.pytorch.IValue;
 import org.pytorch.Tensor;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
-import java.io.IOException;
-import java.util.HashMap;
 import java.util.Locale;
-import java.util.Map;
 
 public class HardwareMonitor {
     private static final String TAG = "HardwareMonitor";
