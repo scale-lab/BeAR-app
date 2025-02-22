@@ -2,6 +2,7 @@ package com.example.arbenchapp;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.RunType;
@@ -21,6 +22,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.FloatBuffer;
 import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.Map;
 
 import ai.onnxruntime.*;
@@ -39,9 +41,12 @@ public class MTLBox {
 
     public MTLBoxStruct run(Bitmap bitmap, Context context) throws Exception {
         Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        Map<String, Bitmap> default_map = new HashMap<>();
+        default_map.put("output", default_bm);
         Double default_tm = 0.0;
         HardwareMonitor.HardwareMetrics default_metrics = null;
-        MTLBoxStruct default_mbs = new MTLBoxStruct(default_bm, default_tm, default_metrics);
+        MTLBoxStruct default_mbs =
+                new MTLBoxStruct(default_map, viewSettings().getRunType(), default_bm, default_tm, default_metrics);
         switch (this.settings.getRunType()) {
             case NONE:
                 return default_mbs;
@@ -57,18 +62,7 @@ public class MTLBox {
         }
     }
 
-    private Tensor BitmapToTensor(Bitmap bitmap) {
-        // Normalize the image using ImageNet mean and standard deviation
-        float[] normMeanRGB = {0.485f, 0.456f, 0.406f};
-        float[] normStdRGB = {0.229f, 0.224f, 0.225f};
-
-        // Convert the bitmap to a float32 tensor
-        return TensorImageUtils.bitmapToFloat32Tensor(
-                bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), normMeanRGB, normStdRGB
-        );
-    }
-
-    private Bitmap TensorToBitmap(Tensor outputTensor, int width, int height) {
+    public Bitmap TensorToBitmap(Tensor outputTensor, int width, int height) {
         try {
             // Get tensor data as float array
             float[] tensorValues = outputTensor.getDataAsFloatArray();
@@ -146,7 +140,7 @@ public class MTLBox {
 
     public File getFile(Context context, String filename) {
         File file = new File(context.getFilesDir(), filename);
-        if (!file.exists()) {
+        if (true || !file.exists()) {
             try (InputStream is = context.getAssets().open(filename);
                  OutputStream os = Files.newOutputStream(file.toPath())) {
                 byte[] buf = new byte[1024];
@@ -169,56 +163,39 @@ public class MTLBox {
         System.out.println("CONV2D RUN .. model loaded");
 
         //int batchSize = 16;
-        Tensor inp = BitmapToTensor(bitmap);
         // System.out.println("CONV2D .. input prep");
         // Tensor[] inputs = InputPreparation.prepareInputBatch(ImageConverter.bitmapToFloat2D(bitmap), batchSize);
 
         HardwareMonitor.PyTorchModelMonitor ptmm = new HardwareMonitor.PyTorchModelMonitor(model, context);
-        HardwareMonitor.HardwareMetrics res = ptmm.executeAndMonitor(IValue.from(inp));
+        HardwareMonitor.HardwareMetrics res = ptmm.executeAndMonitor(bitmap);
         System.out.println("CONV2D .. " + res.toString());
 
         Double mtm = res.executionTimeMs;
-        Tensor out = res.output;
-        System.out.println("CONV2D .. able to convert stuff");
-        Bitmap bm = out != null ? (settings.getRunType() == RunType.DEEPLABV3 ?
-                TensorToBW(out, bitmap.getWidth(), bitmap.getHeight()) :
-                TensorToBitmap(out, bitmap.getWidth(), bitmap.getHeight()))
-                : null;
-        System.out.println("CONV2D .. made bitmap, is null: " + (bitmap == null));
-        return new MTLBoxStruct(bm, mtm, res);
-    }
-
-    public static OnnxTensor bitmapToTensor(Bitmap bitmap, OrtEnvironment env) throws OrtException {
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        int channels = bitmap.hasAlpha() ? 4 : 3;
-
-        // Convert bitmap pixels to a float array
-        float[] floatValues = new float[width * height * channels];
-        int[] intValues = new int[width * height];
-        bitmap.getPixels(intValues, 0, width, 0, 0, width, height);
-
-        for (int i = 0; i < intValues.length; i++) {
-            int pixel = intValues[i];
-            floatValues[i * 3] = ((pixel >> 16) & 0xFF) / 255.0f; // Red
-            floatValues[i * 3 + 1] = ((pixel >> 8) & 0xFF) / 255.0f; // Green
-            floatValues[i * 3 + 2] = (pixel & 0xFF) / 255.0f; // Blue
+        Map<String, Tensor> out = res.output;
+        if (out == null) {
+            System.err.println("ERROR: Output map is null.");
+            return null;
         }
-
-        // Convert to FloatBuffer
-        FloatBuffer buffer = FloatBuffer.wrap(floatValues);
-        long[] shape = {1, channels, height, width}; // NCHW format
-
-        // Create an OnnxTensor
-        return OnnxTensor.createTensor(env, buffer, shape);
+        if (out.get("output") == null) {
+            System.err.println("ERROR: Output map doesn't contain output field.");
+            return null;
+        }
+        System.out.println("CONV2D .. able to convert stuff");
+//        Bitmap bm = settings.getRunType() == RunType.DEEPLABV3 ?
+//                TensorToBW(out.get("output"), bitmap.getWidth(), bitmap.getHeight()) :
+//                TensorToBitmap(out.get("output"), bitmap.getWidth(), bitmap.getHeight());
+        return new MTLBoxStruct(out, settings.getRunType(), bitmap, mtm, res, bitmap.getWidth(), bitmap.getHeight());
     }
 
     public MTLBoxStruct runFromOnnx(Bitmap bitmap, Context context, String filename) {
         System.out.println("ONNX: RUNFROMONNX START!");
-        MTLBoxStruct mtlBoxStruct = new MTLBoxStruct(bitmap, 0.0, null);
+        Map<String, Bitmap> default_map = new HashMap<>();
+        default_map.put("output", bitmap);
+        MTLBoxStruct mtlBoxStruct = new MTLBoxStruct(default_map, viewSettings().getRunType(), bitmap, 0.0, null);
         OrtEnvironment env = OrtEnvironment.getEnvironment();
         try {
             File file = getFile(context, filename);
+            System.out.println("ONNX: filename: " + filename);
             OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
             if (!viewSettings().isDimsInit()) {
                 System.err.println("ONNX: IMAGE DIMENSIONS NOT SPECIFIED IN SETTINGS!");
@@ -230,21 +207,9 @@ public class MTLBox {
                     viewSettings().getImgHeight(),
                     false
             );
-            OnnxTensor input = bitmapToTensor(scaled, env);
-            Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", input);
-            OrtSession.Result outputs = session.run(inputs);
-            System.out.println("ONNX: OUTPUTS SIZE: " + outputs.size());
-            outputs.forEach(k -> System.out.println("ONNX: key: " + k.toString()));
-            for (Map.Entry<String, OnnxValue> entry : outputs) {
-                String key = entry.getKey();
-                OnnxValue value = entry.getValue();
-                if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
-                    float[][][] ft = (float[][][]) value.getValue();
-                } else {
-                    System.err.println("ONNX: VALUE ISN'T TENSOR.");
-                    return mtlBoxStruct;
-                }
-            }
+            HardwareMonitor.PyTorchModelMonitor omm = new HardwareMonitor.PyTorchModelMonitor(session, env, context);
+            HardwareMonitor.HardwareMetrics res = omm.executeAndMonitor(scaled);
+            return new MTLBoxStruct(res.output, viewSettings().getRunType(), scaled, res.executionTimeMs, res, scaled.getWidth(), scaled.getHeight());
         } catch (OrtException ortException) {
             System.err.println("ONNX: EXCEPTION WHEN CREATING OR USING OrtSession: "
                     + ortException.getMessage());
