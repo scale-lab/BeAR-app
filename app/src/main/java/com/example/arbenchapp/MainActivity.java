@@ -1,12 +1,16 @@
 package com.example.arbenchapp;
 
 import android.graphics.Bitmap;
+import android.media.Image;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.View;
 import android.view.Menu;
 
+import com.example.arbenchapp.datatypes.ImagePage;
+import com.example.arbenchapp.datatypes.ImagePageAdapter;
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
@@ -23,6 +27,7 @@ import androidx.navigation.ui.AppBarConfiguration;
 import androidx.navigation.ui.NavigationUI;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.viewpager2.widget.ViewPager2;
 
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -31,6 +36,8 @@ import com.example.arbenchapp.databinding.ActivityMainBinding;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -52,17 +59,18 @@ public class MainActivity extends AppCompatActivity {
                         MTLBox mtlBox = new MTLBox(s);
 
                         MTLBoxStruct processed = mtlBox.run(bitmap, this);
-                        Bitmap bm = processed.getBitmap();
+                        Map<String, Bitmap> bms = processed.getBitmaps();
 
-                        TextView tv = findViewById(R.id.text_home);
-                        tv.setText(createDisplayString(processed));
-                        ImageView iv1 = findViewById(R.id.filteredView1);
-                        iv1.setImageBitmap(bm);
-                        ImageView iv2 = findViewById(R.id.filteredView2);
-                        iv2.setImageBitmap(bm);
-                        System.out.println("CONV2D RUN .. displayed!!!");
-                        ImageView uv = findViewById(R.id.unfilteredView);
-                        uv.setImageBitmap(bitmap);
+                        ViewPager2 viewPager2 = findViewById(R.id.viewPager);
+                        ArrayList<ImagePage> pages = new ArrayList<>();
+                        ImagePage inputIp = new ImagePage(processed.getInput(), "Input Image");
+                        pages.add(inputIp);
+                        for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
+                            ImagePage ip = new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed));
+                            pages.add(ip);
+                        }
+                        ImagePageAdapter adapter = new ImagePageAdapter(pages);
+                        viewPager2.setAdapter(adapter);
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }
@@ -82,10 +90,6 @@ public class MainActivity extends AppCompatActivity {
         binding.appBarMain.fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-//                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-//                        .setAction("Action", null)
-//                        .setAnchorView(R.id.fab).show();
-                // test open gallery
                 pickMedia.launch(new PickVisualMediaRequest.Builder()
                         .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
                         .build());
@@ -102,19 +106,6 @@ public class MainActivity extends AppCompatActivity {
         NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
         NavigationUI.setupActionBarWithNavController(this, navController, mAppBarConfiguration);
         NavigationUI.setupWithNavController(navigationView, navController);
-
-        // Adjust imageView
-        int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        ImageView iv = findViewById(R.id.filteredView1);
-        ConstraintLayout.LayoutParams iv_params = (ConstraintLayout.LayoutParams) iv.getLayoutParams();
-        iv_params.bottomMargin = (int) (screenHeight * 0.5);
-        iv.setLayoutParams(iv_params);
-
-        // Adjust unfilteredView
-        ImageView uv = findViewById(R.id.unfilteredView);
-        ConstraintLayout.LayoutParams uv_params = (ConstraintLayout.LayoutParams) uv.getLayoutParams();
-        uv_params.topMargin = (int) (screenHeight * 0.5);
-        uv.setLayoutParams(uv_params);
     }
 
     @Override
@@ -131,11 +122,12 @@ public class MainActivity extends AppCompatActivity {
                 || super.onSupportNavigateUp();
     }
 
-    public String createDisplayString(MTLBoxStruct processed) {
+    public String createDisplayString(String output, MTLBoxStruct processed) {
         Double tm = processed.getTime();
         HardwareMonitor.HardwareMetrics metrics = processed.getMetrics();
         String[] messages = getMessages(tm, metrics);
         StringBuilder displayStrBuilt = new StringBuilder();
+        displayStrBuilt.append(output).append("\n");
         for (String m : messages) {
             displayStrBuilt.append(m).append("\n");
         }
@@ -150,6 +142,7 @@ public class MainActivity extends AppCompatActivity {
         String nullMetricsMessage = "ERR: Returned NULL metrics";
         int decimalPoints = 2;
         String timeDisplay = "Runtime: " + tm + " ms";
+        String timeDisplayProcessing = "Runtime with postprocessing: " + metrics.executionWithProcessing + "ms";
         String memoryUsageDisplay = metrics != null ?
                 "Memory usage: " + round(metrics.memoryUsageMB, decimalPoints) + " mb" :
                 nullMetricsMessage;
@@ -164,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
                 nullMetricsMessage;
         return new String[]{
                 timeDisplay,
+                timeDisplayProcessing,
                 memoryUsageDisplay,
                 memoryDeltaDisplay,
                 cpuUsagePercentDisplay,
