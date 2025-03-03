@@ -1,11 +1,14 @@
 package com.example.arbenchapp;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.media.Image;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.util.DisplayMetrics;
 import android.util.Log;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.Menu;
 
@@ -15,6 +18,8 @@ import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
+import com.example.arbenchapp.ui.settings.SettingsFragment;
+import com.example.arbenchapp.util.ConversionUtil;
 import com.google.android.material.navigation.NavigationView;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -27,8 +32,10 @@ import androidx.navigation.ui.AppBarConfiguration;
 import androidx.navigation.ui.NavigationUI;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.preference.PreferenceManager;
 import androidx.viewpager2.widget.ViewPager2;
 
+import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -53,9 +60,9 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         // BUG: switching tabs messes with image positioning
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
-                        System.out.println("CONV2D RUN .. bitmap config: " + bitmap.getConfig());
-                        // testing python interpreter
-                        Settings s = new Settings(RunType.MTL, 224, 224);
+                        RunType runType = RunType.SWIN_MTL;
+                        Settings s = new Settings(
+                                runType, ConversionUtil.getConversionMap(runType), 224, 224);
                         MTLBox mtlBox = new MTLBox(s);
 
                         MTLBoxStruct processed = mtlBox.run(bitmap, this);
@@ -82,6 +89,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        MainActivity context = this;
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -90,9 +98,14 @@ public class MainActivity extends AppCompatActivity {
         binding.appBarMain.fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                pickMedia.launch(new PickVisualMediaRequest.Builder()
-                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
-                        .build());
+                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+                if (!prefs.getBoolean("use_camera", false)) {
+                    pickMedia.launch(new PickVisualMediaRequest.Builder()
+                            .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
+                            .build());
+                } else {
+                    // camera is being used!
+                }
             }
         });
         DrawerLayout drawer = binding.drawerLayout;
@@ -116,6 +129,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+        if (id == R.id.action_settings) {
+            Intent intent = new Intent(this, SettingsActivity.class);
+            startActivity(intent);
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    @Override
     public boolean onSupportNavigateUp() {
         NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
         return NavigationUI.navigateUp(navController, mAppBarConfiguration)
@@ -129,7 +153,9 @@ public class MainActivity extends AppCompatActivity {
         StringBuilder displayStrBuilt = new StringBuilder();
         displayStrBuilt.append(output).append("\n");
         for (String m : messages) {
-            displayStrBuilt.append(m).append("\n");
+            if (!m.isEmpty()) {
+                displayStrBuilt.append(m).append("\n");
+            }
         }
         String displayStr = displayStrBuilt.toString();
         if (displayStr.endsWith("\n")) {
@@ -138,30 +164,44 @@ public class MainActivity extends AppCompatActivity {
         return displayStr;
     }
 
-    private static String [] getMessages(Double tm, HardwareMonitor.HardwareMetrics metrics) {
+    private String [] getMessages(Double tm, HardwareMonitor.HardwareMetrics metrics) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         String nullMetricsMessage = "ERR: Returned NULL metrics";
         int decimalPoints = 2;
-        String timeDisplay = "Runtime: " + tm + " ms";
-        String timeDisplayProcessing = "Runtime with postprocessing: " + metrics.executionWithProcessing + "ms";
-        String memoryUsageDisplay = metrics != null ?
-                "Memory usage: " + round(metrics.memoryUsageMB, decimalPoints) + " mb" :
-                nullMetricsMessage;
-        String memoryDeltaDisplay = metrics != null ?
-                "Memory delta: " + round(metrics.memoryDeltaMB, decimalPoints) + " mb" :
-                nullMetricsMessage;
-        String cpuUsagePercentDisplay = metrics != null ?
-                "CPU Usage Percent: " + round(metrics.cpuUsagePercent, decimalPoints) + "%" :
-                nullMetricsMessage;
-        String cpuUsageDeltaDisplay = metrics != null ?
-                "CPU Usage Percent Delta: " + round(metrics.cpuUsageDelta, decimalPoints) + "%" :
-                nullMetricsMessage;
+        String timeDisplay = prefs.getBoolean("runtime_model", true) ?
+                "Runtime: " + tm + " ms" : "";
+        String timeDisplayProcessing = prefs.getBoolean("runtime_total", true) ?
+                "Runtime with Postprocessing: " + metrics.executionWithProcessing + "ms" : "";
+        String cpuUsagePercentDisplay = prefs.getBoolean("cpu_usage", true) ?
+                "CPU Usage Percent: " + round(metrics.cpuUsagePercent, decimalPoints) + "%" : "";
+        String cpuUsageDeltaDisplay = prefs.getBoolean("cpu_usage_delta", true) ?
+                "CPU Usage Percent Delta: " + round(metrics.cpuUsageDelta, decimalPoints) + "%" : "";
+        String threadCpuTimeDisplay = prefs.getBoolean("cpu_thread_time", true) ?
+                "Thread CPU Time: " + round(metrics.threadCpuTimeMs, decimalPoints) + "ms" : "";
+        String memoryUsedDisplay = prefs.getBoolean("memory_usage", true) ?
+                "Memory Used: " + round(metrics.memoryUsedBytes, decimalPoints) + " bytes" : "";
+        String batteryUsedDisplay = prefs.getBoolean("battery_usage", true) ?
+                "Battery Used: " + round(metrics.batteryPercentageUsed, decimalPoints) + "%" : "";
+        String powerConsumedDisplay = prefs.getBoolean("power_consumed", true) ?
+                "Power Consumed: " + round(metrics.powerConsumedMicroWattHours, decimalPoints) + "mWh" : "";
+        String temperatureChangeDisplay = prefs.getBoolean("temp_change", true) ?
+                "Temperature Change: " + round(metrics.temperatureChangeCelsius, decimalPoints) + " degrees Celsius" : "";
+        String finalTemperatureDisplay = prefs.getBoolean("temp_final", true) ?
+                "Final Temperature: " + round(metrics.finalTemperatureCelsius, decimalPoints) + " degrees Celsius" : "";
+        String averageCurrentDisplay = prefs.getBoolean("current_avg", true) ?
+                "Average Current: " + round(metrics.averageCurrentDrainMicroAmps, decimalPoints) + " microA" : "";
         return new String[]{
                 timeDisplay,
                 timeDisplayProcessing,
-                memoryUsageDisplay,
-                memoryDeltaDisplay,
                 cpuUsagePercentDisplay,
-                cpuUsageDeltaDisplay
+                cpuUsageDeltaDisplay,
+                threadCpuTimeDisplay,
+                memoryUsedDisplay,
+                batteryUsedDisplay,
+                powerConsumedDisplay,
+                temperatureChangeDisplay,
+                finalTemperatureDisplay,
+                averageCurrentDisplay
         };
     }
 

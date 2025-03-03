@@ -45,6 +45,7 @@ dependencies {
     implementation libs.firebase.crashlytics.buildtools
     implementation libs.commons.lang3
     implementation libs.tools.core
+    implementation libs.preference.ktx
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core

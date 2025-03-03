@@ -1,0 +1,92 @@
+package com.example.arbenchapp;
+
+import android.os.Bundle;
+import android.text.InputType;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.preference.EditTextPreference;
+import androidx.preference.PreferenceFragmentCompat;
+
+import com.example.arbenchapp.ui.settings.SettingsFragment;
+
+public class SettingsActivity extends AppCompatActivity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.settings);
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.settings_container, new SettingsFragment())
+                .commit();
+    }
+
+    public static class MainSettingsFragment extends PreferenceFragmentCompat {
+        @Override
+        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+            setPreferencesFromResource(R.xml.preferences, rootKey);
+        }
+    }
+
+    public static class HardwareSettingsFragment extends PreferenceFragmentCompat {
+        @Override
+        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+            setPreferencesFromResource(R.xml.hw_preferences, rootKey);
+        }
+    }
+
+    public static class CameraSettingsFragment extends PreferenceFragmentCompat {
+        @Override
+        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+            setPreferencesFromResource(R.xml.cam_preferences, rootKey);
+
+            EditTextPreference framePreference = findPreference("update_freq_frames");
+            EditTextPreference timePreference = findPreference("update_freq_time");
+
+            if (framePreference != null) {
+                framePreference.setOnBindEditTextListener(editText -> {
+                    editText.setInputType(InputType.TYPE_CLASS_NUMBER);
+                });
+
+                framePreference.setOnPreferenceChangeListener((preference, newValue) -> {
+                    try {
+                        int value = Integer.parseInt(newValue.toString());
+                        int minValue = 1;
+                        int maxValue = 9000;
+
+                        if (value < minValue) value = minValue;
+                        if (value > maxValue) value = maxValue;
+
+                        ((EditTextPreference) preference).setText(String.valueOf(value));
+
+                        return false;
+                    } catch (NumberFormatException e) {
+                        return false;
+                    }
+                });
+            }
+
+            if (timePreference != null) {
+                timePreference.setOnBindEditTextListener(editText -> {
+                    editText.setInputType(InputType.TYPE_CLASS_NUMBER);
+                });
+
+                timePreference.setOnPreferenceChangeListener((preference, newValue) -> {
+                    try {
+                        int value = Integer.parseInt(newValue.toString());
+                        int minValue = 1;
+                        int maxValue = 300;
+
+                        if (value < minValue) value = minValue;
+                        if (value > maxValue) value = maxValue;
+
+                        ((EditTextPreference) preference).setText(String.valueOf(value));
+
+                        return false;
+                    } catch (NumberFormatException e) {
+                        return false;
+                    }
+                });
+            }
+        }
+    }
+}
