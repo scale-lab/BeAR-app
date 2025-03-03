@@ -4,11 +4,13 @@ import android.graphics.Bitmap;
 
 import com.example.arbenchapp.MTLBox;
 import com.example.arbenchapp.monitor.HardwareMonitor;
+import com.example.arbenchapp.util.ConversionUtil;
 
 import org.pytorch.Tensor;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class MTLBoxStruct {
     private final Map<String, Bitmap> bitmaps;
@@ -19,12 +21,11 @@ public class MTLBoxStruct {
 
     private Map<String, Bitmap> convert(Map<String, Tensor> tensors, int w, int h) {
         Map<String, Bitmap> bitmaps = new HashMap<>();
-        Settings s = new Settings(RunType.MTL, h, w);
-        MTLBox box = new MTLBox(s);
+        Map<String, ConversionMethod> conversionMap = ConversionUtil.getConversionMap(runType);
         for (Map.Entry<String, Tensor> entry : tensors.entrySet()) {
-            Bitmap bm = runType != RunType.DEEPLABV3 ?
-                    box.TensorToBitmap(entry.getValue(), w, h) :
-                    box.TensorToBW(entry.getValue(), w, h);
+            Bitmap bm = ConversionUtil.TensorToImage(entry.getValue(),
+                    Objects.requireNonNull(conversionMap.getOrDefault(entry.getKey(), ConversionMethod.DEFAULT)),
+                    w, h);
             bitmaps.put(entry.getKey(), bm);
         }
         return bitmaps;

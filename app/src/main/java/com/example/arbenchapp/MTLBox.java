@@ -18,10 +18,12 @@ import org.pytorch.Tensor;
 import org.pytorch.torchvision.TensorImageUtils;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.FloatBuffer;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -55,92 +57,37 @@ public class MTLBox {
             case DEEPLABV3:
                 System.out.println("CONV2D RUN .. running deeplabv3");
                 return runFromPt(bitmap, context, "deeplabv3.pt");
-            case MTL:
+            case SEG_NORM_MTL:
                 return runFromOnnx(bitmap, context, "resnet_seg_norm.onnx");
+            case SWIN_MTL:
+                return runFromOnnx(bitmap, context, "swin_mtl_nyud.onnx");
             default:
                 return runFromPt(bitmap, context, "gaussian_blur.pt");
         }
     }
 
-    public Bitmap TensorToBitmap(Tensor outputTensor, int width, int height) {
-        try {
-            // Get tensor data as float array
-            float[] tensorValues = outputTensor.getDataAsFloatArray();
-
-            // Denormalize the tensor values
-            int[] pixels = new int[width * height];
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    int idx = y * width + x;
-
-                    // Extract RGB values and denormalize
-                    float r = Math.min(255, Math.max(0,
-                            (tensorValues[idx] * 0.229f + 0.485f) * 255));
-                    float g = Math.min(255, Math.max(0,
-                            (tensorValues[idx + width * height] * 0.224f + 0.456f) * 255));
-                    float b = Math.min(255, Math.max(0,
-                            (tensorValues[idx + 2 * width * height] * 0.225f + 0.406f) * 255));
-
-                    // Combine into ARGB pixel
-                    pixels[idx] = 0xFF000000 |
-                            ((int)r << 16) |
-                            ((int)g << 8) |
-                            (int)b;
-                }
-            }
-
-            // Create bitmap from pixel array
-            Bitmap resultBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-            resultBitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-
-            return resultBitmap;
-        } catch (Exception e) {
-            System.err.println("Error converting tensor to bitmap: " + e);
-            return null;
+    public String computeSHA256(File file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        FileInputStream fis = new FileInputStream(file);
+        byte[] buffer = new byte[8192];
+        int bytesRead;
+        while ((bytesRead = fis.read(buffer)) != -1) {
+            digest.update(buffer, 0, bytesRead);
         }
-    }
+        fis.close();
+        byte[] hash = digest.digest();
 
-    public Bitmap TensorToBW(Tensor tensor, int width, int height) {
-        // Step 1: Extract tensor data as a float array
-        float[] tensorData = tensor.getDataAsFloatArray();
-
-        // Step 2: Create an empty bitmap
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-
-        int numClasses = 21; // Number of classes in the output tensor
-        int[] pixels = new int[width * height];
-
-        // Step 3: Iterate through each pixel and find the class with the maximum value
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                int pixelIndex = y * width + x;
-                int maxClassIndex = 0;
-                float maxValue = tensorData[pixelIndex];
-
-                // Compare logits for all classes at this pixel
-                for (int c = 1; c < numClasses; c++) {
-                    float value = tensorData[c * width * height + pixelIndex];
-                    if (value > maxValue) {
-                        maxValue = value;
-                        maxClassIndex = c;
-                    }
-                }
-
-                // Convert class index to grayscale (scale between 0-255)
-                int gray = (int) ((maxClassIndex / (float) (numClasses - 1)) * 255);
-                pixels[pixelIndex] = 0xFF000000 | (gray << 16) | (gray << 8) | gray;
-            }
+        // Convert hash bytes to hex
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : hash) {
+            hexString.append(String.format("%02x", b));
         }
-
-        // Step 4: Set pixel data into the bitmap
-        bitmap.setPixels(pixels, 0, width, 0, 0, width, height);
-
-        return bitmap;
+        return hexString.toString();
     }
 
     public File getFile(Context context, String filename) {
         File file = new File(context.getFilesDir(), filename);
-        if (true || !file.exists()) {
+        if (!file.exists()) {
             try (InputStream is = context.getAssets().open(filename);
                  OutputStream os = Files.newOutputStream(file.toPath())) {
                 byte[] buf = new byte[1024];
@@ -157,21 +104,20 @@ public class MTLBox {
 
     public MTLBoxStruct runFromPt(Bitmap bitmap, Context context, String filename) throws Exception {
         File file = getFile(context, filename);
-        System.out.println("CONV2D RUN .. file exists");
 
         Module model = Module.load(file.getPath());
-        System.out.println("CONV2D RUN .. model loaded");
 
-        //int batchSize = 16;
+        // int batchSize = 16;
         // System.out.println("CONV2D .. input prep");
         // Tensor[] inputs = InputPreparation.prepareInputBatch(ImageConverter.bitmapToFloat2D(bitmap), batchSize);
 
-        HardwareMonitor.PyTorchModelMonitor ptmm = new HardwareMonitor.PyTorchModelMonitor(model, context);
+        HardwareMonitor.PyTorchModelMonitor ptmm =
+                new HardwareMonitor.PyTorchModelMonitor(model, viewSettings(), context);
         HardwareMonitor.HardwareMetrics res = ptmm.executeAndMonitor(bitmap);
         System.out.println("CONV2D .. " + res.toString());
 
         Double mtm = res.executionTimeMs;
-        Map<String, Tensor> out = res.output;
+        Map<String, Bitmap> out = res.output;
         if (out == null) {
             System.err.println("ERROR: Output map is null.");
             return null;
@@ -184,7 +130,7 @@ public class MTLBox {
 //        Bitmap bm = settings.getRunType() == RunType.DEEPLABV3 ?
 //                TensorToBW(out.get("output"), bitmap.getWidth(), bitmap.getHeight()) :
 //                TensorToBitmap(out.get("output"), bitmap.getWidth(), bitmap.getHeight());
-        return new MTLBoxStruct(out, settings.getRunType(), bitmap, mtm, res, bitmap.getWidth(), bitmap.getHeight());
+        return new MTLBoxStruct(out, settings.getRunType(), bitmap, mtm, res);
     }
 
     public MTLBoxStruct runFromOnnx(Bitmap bitmap, Context context, String filename) {
@@ -195,6 +141,11 @@ public class MTLBox {
         OrtEnvironment env = OrtEnvironment.getEnvironment();
         try {
             File file = getFile(context, filename);
+            try {
+                System.out.println("ONNX file hash: " + computeSHA256(file));
+            } catch (Exception e) {
+                System.out.println("ONNX EXCEPTION WITH FILE HASH: " + e);
+            }
             System.out.println("ONNX: filename: " + filename);
             OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
             if (!viewSettings().isDimsInit()) {
@@ -207,9 +158,10 @@ public class MTLBox {
                     viewSettings().getImgHeight(),
                     false
             );
-            HardwareMonitor.PyTorchModelMonitor omm = new HardwareMonitor.PyTorchModelMonitor(session, env, context);
+            HardwareMonitor.PyTorchModelMonitor omm =
+                    new HardwareMonitor.PyTorchModelMonitor(session, env, viewSettings(), context);
             HardwareMonitor.HardwareMetrics res = omm.executeAndMonitor(scaled);
-            return new MTLBoxStruct(res.output, viewSettings().getRunType(), scaled, res.executionTimeMs, res, scaled.getWidth(), scaled.getHeight());
+            return new MTLBoxStruct(res.output, viewSettings().getRunType(), scaled, res.executionTimeMs, res);
         } catch (OrtException ortException) {
             System.err.println("ONNX: EXCEPTION WHEN CREATING OR USING OrtSession: "
                     + ortException.getMessage());

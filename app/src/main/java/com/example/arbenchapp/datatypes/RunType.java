@@ -4,5 +4,6 @@ public enum RunType {
     NONE,
     CONV2D,
     DEEPLABV3,
-    MTL
+    SEG_NORM_MTL,
+    SWIN_MTL
 }

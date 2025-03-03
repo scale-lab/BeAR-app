@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory>
+        <Preference
+            android:key="hardware_settings"
+            android:title="Metrics"
+            android:summary="Manage metrics reporting"
+            android:fragment="com.example.arbenchapp.SettingsActivity$HardwareSettingsFragment" />
+    </PreferenceCategory>
+    <PreferenceCategory>
+        <Preference
+            android:key="camera_settings"
+            android:title="Camera"
+            android:summary="Manage input processing"
+            android:fragment="com.example.arbenchapp.SettingsActivity$CameraSettingsFragment" />
+    </PreferenceCategory>
+</PreferenceScreen>
