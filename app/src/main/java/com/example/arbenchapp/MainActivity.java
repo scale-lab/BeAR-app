@@ -15,10 +15,12 @@ import android.view.Menu;
 import com.example.arbenchapp.datatypes.ImagePage;
 import com.example.arbenchapp.datatypes.ImagePageAdapter;
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
+import com.example.arbenchapp.datatypes.Resolution;
 import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.example.arbenchapp.ui.settings.SettingsFragment;
+import com.example.arbenchapp.util.CameraUtil;
 import com.example.arbenchapp.util.ConversionUtil;
 import com.google.android.material.navigation.NavigationView;
 
@@ -26,6 +28,8 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.constraintlayout.widget.ConstraintLayout;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.navigation.NavController;
 import androidx.navigation.Navigation;
 import androidx.navigation.ui.AppBarConfiguration;
@@ -44,12 +48,25 @@ import com.example.arbenchapp.databinding.ActivityMainBinding;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-public class MainActivity extends AppCompatActivity {
-
+public class MainActivity extends AppCompatActivity implements CameraUtil.CameraCallback {
     private AppBarConfiguration mAppBarConfiguration;
     private ActivityMainBinding binding;
+    private CameraUtil cameraUtil;
+    private ImagePageAdapter adapter;
+    private List<ImagePage> imagePageList;
+    private MTLBox mtlBox;
+    private Resolution res;
+    private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
+    private final Object processingLock = new Object();
+    private boolean isProcessingInference = false;
+
     // Registers a photo picker activity launcher in single-select mode.
     ActivityResultLauncher<PickVisualMediaRequest> pickMedia =
             registerForActivityResult(new ActivityResultContracts.PickVisualMedia(), uri -> {
@@ -60,24 +77,19 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         // BUG: switching tabs messes with image positioning
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
-                        RunType runType = RunType.SWIN_MTL;
-                        Settings s = new Settings(
-                                runType, ConversionUtil.getConversionMap(runType), 224, 224);
-                        MTLBox mtlBox = new MTLBox(s);
 
                         MTLBoxStruct processed = mtlBox.run(bitmap, this);
                         Map<String, Bitmap> bms = processed.getBitmaps();
 
-                        ViewPager2 viewPager2 = findViewById(R.id.viewPager);
-                        ArrayList<ImagePage> pages = new ArrayList<>();
                         ImagePage inputIp = new ImagePage(processed.getInput(), "Input Image");
-                        pages.add(inputIp);
+                        imagePageList.clear();
+                        adapter.notifyDataSetChanged();
+                        imagePageList.add(inputIp);
+                        adapter.notifyItemChanged(0);
                         for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
-                            ImagePage ip = new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed));
-                            pages.add(ip);
+                            imagePageList.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed)));
+                            adapter.notifyItemChanged(imagePageList.size() - 1);
                         }
-                        ImagePageAdapter adapter = new ImagePageAdapter(pages);
-                        viewPager2.setAdapter(adapter);
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }
@@ -94,6 +106,20 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
+        cameraUtil = new CameraUtil(context, context);
+
+        ViewPager2 viewPager2 = findViewById(R.id.viewPager);
+        imagePageList = new ArrayList<>();
+        adapter = new ImagePageAdapter(context, imagePageList);
+        viewPager2.setAdapter(adapter);
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        res = new Resolution(prefs.getString("resolution", "224,224"));
+        RunType runType = RunType.SWIN_MTL;
+        Settings s = new Settings(
+                runType, ConversionUtil.getConversionMap(runType), res.getHeight(), res.getWidth());
+        mtlBox = new MTLBox(s);
+
         setSupportActionBar(binding.appBarMain.toolbar);
         binding.appBarMain.fab.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -105,6 +131,12 @@ public class MainActivity extends AppCompatActivity {
                             .build());
                 } else {
                     // camera is being used!
+                    if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA)
+                            != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        ActivityCompat.requestPermissions(context, new String[]{android.Manifest.permission.CAMERA}, 101);
+                        return;
+                    }
+                    cameraUtil.startCamera();
                 }
             }
         });
@@ -144,6 +176,90 @@ public class MainActivity extends AppCompatActivity {
         NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
         return NavigationUI.navigateUp(navController, mAppBarConfiguration)
                 || super.onSupportNavigateUp();
+    }
+
+    @Override
+    public void onFrameCaptured(Bitmap bitmap) {
+        runOnUiThread(() -> {
+            ImagePage ip = new ImagePage(bitmap, "Input Image");
+            if (imagePageList.isEmpty()) {
+                imagePageList.add(ip);
+                adapter.notifyDataSetChanged();
+            } else {
+                imagePageList.set(0, ip);
+                adapter.notifyItemChanged(0);
+            }
+        });
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        if (prefs.getBoolean("run_inference", true)) {
+            synchronized (processingLock) {
+                if (isProcessingInference) {
+                    return;
+                }
+                isProcessingInference = true;
+            }
+            inferenceExecutor.execute(() -> {
+                try {
+                    MTLBoxStruct processed = mtlBox.run(bitmap, this);
+                    Map<String, Bitmap> bms = processed.getBitmaps();
+                    final List<ImagePage> newPages = new ArrayList<>();
+                    for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
+                        newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed)));
+                    }
+                    runOnUiThread(() -> {
+                        System.out.println("ONNX adding pages");
+                        for (int i = 0; i < newPages.size(); i++) {
+                            if (imagePageList.size() < i + 2) {
+                                imagePageList.add(newPages.get(i));
+                            } else {
+                                imagePageList.set(i + 1, newPages.get(i));
+                            }
+                        }
+                        adapter.notifyDataSetChanged();
+                        synchronized (processingLock) {
+                            isProcessingInference = false;
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.e("MainActivity", "ONNX Error processing frame", e);
+                    runOnUiThread(() -> {
+                        ImagePage ip = new ImagePage(bitmap, "Error processing image: " + e.getMessage());
+                        if (imagePageList.size() < 2) {
+                            imagePageList.add(ip);
+                        } else {
+                            imagePageList.set(1, ip);
+                        }
+                        adapter.notifyDataSetChanged();
+                        synchronized (processingLock) {
+                            isProcessingInference = false;
+                        }
+                    });
+                }
+            });
+        } else {
+            runOnUiThread(() -> {
+                ImagePage ip = new ImagePage(bitmap, "Test Second Image");
+                if (imagePageList.size() < 2) {
+                    imagePageList.add(ip);
+                    adapter.notifyDataSetChanged();
+                } else {
+                    imagePageList.set(1, ip);
+                    adapter.notifyItemChanged(1);
+                }
+            });
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (cameraUtil != null) {
+            cameraUtil.shutdown();
+        }
+        if (inferenceExecutor != null && !inferenceExecutor.isShutdown()) {
+            inferenceExecutor.shutdown();
+        }
     }
 
     public String createDisplayString(String output, MTLBoxStruct processed) {

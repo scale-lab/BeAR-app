@@ -6,6 +6,14 @@
         app:title="Enable Device Camera"
         app:defaultValue="false"/>
 
+    <EditTextPreference
+        app:key="resolution"
+        app:title="Resolution (x,y)"
+        app:summary="WARNING: The input resolution MUST match the input resolution expected by the model!"
+        app:dialogTitle="Enter in format 'x,y'..."
+        app:defaultValue="224,224"
+        app:dependency="use_camera"/>
+
     <CheckBoxPreference
         app:key="frame_limiter"
         app:title="Limit Metrics -- Frames"

@@ -34,6 +34,13 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
+    public static class ModelSettingsFragment extends PreferenceFragmentCompat {
+        @Override
+        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
+            setPreferencesFromResource(R.xml.model_preferences, rootKey);
+        }
+    }
+
     public static class CameraSettingsFragment extends PreferenceFragmentCompat {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
@@ -41,6 +48,7 @@ public class SettingsActivity extends AppCompatActivity {
 
             EditTextPreference framePreference = findPreference("update_freq_frames");
             EditTextPreference timePreference = findPreference("update_freq_time");
+            EditTextPreference resolutionPreference = findPreference("resolution");
 
             if (framePreference != null) {
                 framePreference.setOnBindEditTextListener(editText -> {
@@ -80,6 +88,37 @@ public class SettingsActivity extends AppCompatActivity {
                         if (value > maxValue) value = maxValue;
 
                         ((EditTextPreference) preference).setText(String.valueOf(value));
+
+                        return false;
+                    } catch (NumberFormatException e) {
+                        return false;
+                    }
+                });
+            }
+
+            if (resolutionPreference != null) {
+                resolutionPreference.setOnBindEditTextListener(editText -> {
+                    editText.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_CLASS_TEXT);
+                });
+
+                resolutionPreference.setOnPreferenceChangeListener((preference, newValue) -> {
+                    String input = newValue.toString().trim();
+
+                    // Validate input format (must be two integers separated by a comma)
+                    String[] parts = input.split(",");
+                    if (parts.length != 2) return false;
+
+                    try {
+                        int x = Integer.parseInt(parts[0].trim());
+                        int y = Integer.parseInt(parts[1].trim());
+
+                        int minValue = 0;
+                        int maxValue = 500;
+
+                        x = Math.max(minValue, Math.min(maxValue, x));
+                        y = Math.max(minValue, Math.min(maxValue, y));
+
+                        ((EditTextPreference) preference).setText(x + "," + y);
 
                         return false;
                     } catch (NumberFormatException e) {

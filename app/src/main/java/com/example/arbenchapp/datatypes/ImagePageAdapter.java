@@ -1,5 +1,6 @@
 package com.example.arbenchapp.datatypes;
 
+import android.content.Context;
 import android.content.res.Configuration;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -16,32 +17,30 @@ import java.util.List;
 
 public class ImagePageAdapter extends RecyclerView.Adapter<ImagePageAdapter.ImageViewHolder> {
     private final List<ImagePage> pages;
+    private final LayoutInflater inflater;
 
-    public ImagePageAdapter(List<ImagePage> pages) {
+    public ImagePageAdapter(Context context, List<ImagePage> pages) {
         this.pages = pages;
+        this.inflater = LayoutInflater.from(context);
     }
 
     @NonNull
     @Override
     public ImageViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        int orientation = parent.getResources().getConfiguration().orientation;
-        String orientationString = orientation == Configuration.ORIENTATION_LANDSCAPE ? "LANDSCAPE" : "PORTRAIT";
-        System.out.println("ONNX orientation: " + orientationString);
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.page_image, parent, false);
+        View view = inflater.inflate(R.layout.page_image, parent, false);
         return new ImageViewHolder(view);
     }
 
     @Override
     public void onBindViewHolder(@NonNull ImageViewHolder holder, int position) {
-        ImagePage page = pages.get(position);
+        ImagePage page = this.pages.get(position);
         holder.imageView.setImageBitmap(page.getImage());
         holder.captionView.setText(page.getCaption());
     }
 
     @Override
     public int getItemCount() {
-        return pages.size();
+        return this.pages.size();
     }
 
     static class ImageViewHolder extends RecyclerView.ViewHolder {
