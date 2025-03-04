@@ -107,14 +107,9 @@ public class MTLBox {
 
         Module model = Module.load(file.getPath());
 
-        // int batchSize = 16;
-        // System.out.println("CONV2D .. input prep");
-        // Tensor[] inputs = InputPreparation.prepareInputBatch(ImageConverter.bitmapToFloat2D(bitmap), batchSize);
-
         HardwareMonitor.PyTorchModelMonitor ptmm =
                 new HardwareMonitor.PyTorchModelMonitor(model, viewSettings(), context);
         HardwareMonitor.HardwareMetrics res = ptmm.executeAndMonitor(bitmap);
-        System.out.println("CONV2D .. " + res.toString());
 
         Double mtm = res.executionTimeMs;
         Map<String, Bitmap> out = res.output;
@@ -126,15 +121,12 @@ public class MTLBox {
             System.err.println("ERROR: Output map doesn't contain output field.");
             return null;
         }
-        System.out.println("CONV2D .. able to convert stuff");
-//        Bitmap bm = settings.getRunType() == RunType.DEEPLABV3 ?
-//                TensorToBW(out.get("output"), bitmap.getWidth(), bitmap.getHeight()) :
-//                TensorToBitmap(out.get("output"), bitmap.getWidth(), bitmap.getHeight());
         return new MTLBoxStruct(out, settings.getRunType(), bitmap, mtm, res);
     }
 
     public MTLBoxStruct runFromOnnx(Bitmap bitmap, Context context, String filename) {
-        System.out.println("ONNX: RUNFROMONNX START!");
+        Thread currentThread = Thread.currentThread();
+        System.out.println("ONNX: RUNFROMONNX START! " + currentThread.getName() + ", " + currentThread.getId());
         Map<String, Bitmap> default_map = new HashMap<>();
         default_map.put("output", bitmap);
         MTLBoxStruct mtlBoxStruct = new MTLBoxStruct(default_map, viewSettings().getRunType(), bitmap, 0.0, null);

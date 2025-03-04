@@ -220,7 +220,6 @@ public class HardwareMonitor {
                     OnnxValue value = entry.getValue();
                     if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
                         float[][][][] ft = (float[][][][]) value.getValue();
-                        // TODO: Save ft to text file to compare with Python output
                         System.out.println("ONNX " + key + ": " + Arrays.deepToString(ft));
                         Bitmap bm = ConversionUtil.FloatArrayToImage(ft, settings.getConversion(key));
                         output.put(key, bm);
