@@ -3,10 +3,8 @@ package com.example.arbenchapp;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.media.Image;
 import android.os.Bundle;
 import android.provider.MediaStore;
-import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
@@ -16,18 +14,14 @@ import com.example.arbenchapp.datatypes.ImagePage;
 import com.example.arbenchapp.datatypes.ImagePageAdapter;
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.Resolution;
-import com.example.arbenchapp.datatypes.RunType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
-import com.example.arbenchapp.ui.settings.SettingsFragment;
 import com.example.arbenchapp.util.CameraUtil;
-import com.example.arbenchapp.util.ConversionUtil;
 import com.google.android.material.navigation.NavigationView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.constraintlayout.widget.ConstraintLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.navigation.NavController;
@@ -39,17 +33,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.preference.PreferenceManager;
 import androidx.viewpager2.widget.ViewPager2;
 
-import android.widget.Button;
-import android.widget.ImageView;
-import android.widget.TextView;
-
 import com.example.arbenchapp.databinding.ActivityMainBinding;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -115,9 +103,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         res = new Resolution(prefs.getString("resolution", "224,224"));
-        RunType runType = RunType.SWIN_MTL;
-        Settings s = new Settings(
-                runType, ConversionUtil.getConversionMap(runType), res.getHeight(), res.getWidth());
+        Settings s = new Settings(res.getHeight(), res.getWidth());
         mtlBox = new MTLBox(s);
 
         setSupportActionBar(binding.appBarMain.toolbar);

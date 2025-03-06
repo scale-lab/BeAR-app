@@ -3,10 +3,13 @@ package com.example.arbenchapp;
 import android.os.Bundle;
 import android.text.InputType;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.preference.EditTextPreference;
+import androidx.preference.ListPreference;
 import androidx.preference.PreferenceFragmentCompat;
 
+import com.example.arbenchapp.datatypes.StringMappingPreference;
 import com.example.arbenchapp.ui.settings.SettingsFragment;
 
 public class SettingsActivity extends AppCompatActivity {
@@ -38,6 +41,34 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.model_preferences, rootKey);
+
+            ListPreference modelFilePreference = findPreference("model_file_selection");
+            StringMappingPreference mappingPreference = findPreference("output_option_mappings");
+
+            if (modelFilePreference != null) {
+                modelFilePreference.setOnPreferenceChangeListener((preference, newValue) -> {
+                    // String selectedModelFile = newValue.toString();
+                    return true;
+                });
+            }
+
+            if (mappingPreference != null) {
+                mappingPreference.setOptionsList(
+                        new String[]{"DEFAULT", "BLACK AND WHITE", "COLOR", "ARGMAX COLOR"}
+                );
+            }
+        }
+
+        @Override
+        public void onDisplayPreferenceDialog(@NonNull androidx.preference.Preference preference) {
+            if (preference instanceof StringMappingPreference) {
+                StringMappingPreference.StringMappingDialogFragment dialogFragment =
+                        StringMappingPreference.StringMappingDialogFragment.newInstance(preference.getKey());
+                dialogFragment.setTargetFragment(this, 0);
+                dialogFragment.show(getParentFragmentManager(), null);
+            } else {
+                super.onDisplayPreferenceDialog(preference);
+            }
         }
     }
 

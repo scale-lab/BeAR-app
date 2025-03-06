@@ -1,47 +1,58 @@
 package com.example.arbenchapp.datatypes;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+
+import androidx.preference.PreferenceManager;
 
 import com.example.arbenchapp.MTLBox;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.example.arbenchapp.util.ConversionUtil;
+import com.google.common.reflect.TypeToken;
+import com.google.gson.Gson;
 
 import org.pytorch.Tensor;
 
+import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
 public class MTLBoxStruct {
     private final Map<String, Bitmap> bitmaps;
-    private final RunType runType;
     private final Bitmap input;
     private final Double ms;
     private HardwareMonitor.HardwareMetrics metrics = null;
 
-    private Map<String, Bitmap> convert(Map<String, Tensor> tensors, int w, int h) {
+    private Map<String, Bitmap> convert(Map<String, Tensor> tensors, Context context, int w, int h) {
         Map<String, Bitmap> bitmaps = new HashMap<>();
-        Map<String, ConversionMethod> conversionMap = ConversionUtil.getConversionMap(runType);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        String json = prefs.getString("output_option_mappings", "");
+        Gson gson = new Gson();
+        Type type = new TypeToken<HashMap<String, String>>(){}.getType();
+        Map<String, String> mappings = gson.fromJson(json, type);
         for (Map.Entry<String, Tensor> entry : tensors.entrySet()) {
             Bitmap bm = ConversionUtil.TensorToImage(entry.getValue(),
-                    Objects.requireNonNull(conversionMap.getOrDefault(entry.getKey(), ConversionMethod.DEFAULT)),
+                    Objects.requireNonNull(
+                            ConversionUtil.stringToConversionMethod(
+                                    Objects.requireNonNull(
+                                            mappings.getOrDefault(entry.getKey(), "")))),
                     w, h);
             bitmaps.put(entry.getKey(), bm);
         }
         return bitmaps;
     }
 
-    public MTLBoxStruct(Map<String, Bitmap> bitmaps, RunType runType, Bitmap input, Double ms, HardwareMonitor.HardwareMetrics metrics) {
+    public MTLBoxStruct(Map<String, Bitmap> bitmaps, Bitmap input, Double ms, HardwareMonitor.HardwareMetrics metrics) {
         this.bitmaps = bitmaps;
-        this.runType = runType;
         this.input = input;
         this.ms = ms;
         this.metrics = metrics;
     }
 
-    public MTLBoxStruct(Map<String, Tensor> tensors, RunType runType, Bitmap input, Double ms, HardwareMonitor.HardwareMetrics metrics, int w, int h) {
-        this.runType = runType;
-        this.bitmaps = convert(tensors, w, h);
+    public MTLBoxStruct(Map<String, Tensor> tensors, Bitmap input, Context context, Double ms, HardwareMonitor.HardwareMetrics metrics, int w, int h) {
+        this.bitmaps = convert(tensors, context, w, h);
         this.input = input;
         this.ms = ms;
         this.metrics = metrics;

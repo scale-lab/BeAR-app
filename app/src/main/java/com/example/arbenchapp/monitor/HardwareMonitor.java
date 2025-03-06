@@ -12,6 +12,8 @@ import android.util.Log;
 
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.util.ConversionUtil;
+import com.google.common.reflect.TypeToken;
+import com.google.gson.Gson;
 
 import androidx.preference.PreferenceManager;
 
@@ -19,9 +21,11 @@ import org.pytorch.Module;
 import org.pytorch.IValue;
 import org.pytorch.Tensor;
 
+import java.lang.reflect.Type;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxTensorLike;
@@ -193,6 +197,11 @@ public class HardwareMonitor {
                 prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
             }
 
+            String json = prefs.getString("output_option_mappings", "");
+            Gson gson = new Gson();
+            Type type = new TypeToken<HashMap<String, String>>(){}.getType();
+            Map<String, String> outputMappings = gson.fromJson(json, type);
+
             System.out.println("ONNX: " + Debug.getRuntimeStats());
             System.out.println("ONNX should get runtime: " + prefs.getBoolean("runtime_model", true));
 
@@ -221,7 +230,12 @@ public class HardwareMonitor {
                     if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
                         float[][][][] ft = (float[][][][]) value.getValue();
                         System.out.println("ONNX " + key + ": " + Arrays.deepToString(ft));
-                        Bitmap bm = ConversionUtil.FloatArrayToImage(ft, settings.getConversion(key));
+                        Bitmap bm = ConversionUtil.FloatArrayToImage(
+                                ft,
+                                ConversionUtil.stringToConversionMethod(
+                                        Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
+                                )
+                        );
                         output.put(key, bm);
                     } else {
                         System.err.println("ONNX ERROR: Value isn't in tensor.");
@@ -240,7 +254,13 @@ public class HardwareMonitor {
                 endTime = System.nanoTime();
                 String key = "output";
                 output.put(key, ConversionUtil.TensorToImage(
-                        out_val, settings.getConversion(key), input.getWidth(), input.getHeight()));
+                        out_val,
+                        ConversionUtil.stringToConversionMethod(
+                                Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
+                        ),
+                        input.getWidth(),
+                        input.getHeight())
+                );
             }
 
             // Get post-execution metrics
