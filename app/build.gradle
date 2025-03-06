@@ -54,4 +54,5 @@ dependencies {
     implementation libs.camera.view
     implementation libs.camera.camera2
     implementation libs.guava
+    implementation libs.gson
 }

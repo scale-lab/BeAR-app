@@ -4,4 +4,14 @@
         android:key="run_inference"
         android:title="Run Inference"
         android:defaultValue="true" />
+
+    <com.example.arbenchapp.datatypes.AssetFilePreference
+        android:key="model_file_selection"
+        android:title="Select Model File"
+        android:defaultValue="" />
+
+    <com.example.arbenchapp.datatypes.StringMappingPreference
+        android:key="output_option_mappings"
+        android:title="Output Option Mappings"
+        android:summary="Define a map between model outputs and postprocessing method" />
 </androidx.preference.PreferenceScreen>

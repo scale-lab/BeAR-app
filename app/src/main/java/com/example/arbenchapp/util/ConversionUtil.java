@@ -6,7 +6,6 @@ import android.graphics.Color;
 import android.graphics.Paint;
 
 import com.example.arbenchapp.datatypes.ConversionMethod;
-import com.example.arbenchapp.datatypes.RunType;
 
 import org.pytorch.Tensor;
 import org.pytorch.torchvision.TensorImageUtils;
@@ -14,7 +13,6 @@ import org.pytorch.torchvision.TensorImageUtils;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
-import java.util.Map;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
@@ -100,20 +98,17 @@ public final class ConversionUtil {
         }
     }
 
-    public static Map<String, ConversionMethod> getConversionMap(RunType type) {
-        switch (type) {
-            case CONV2D:
-                return Map.of("output", ConversionMethod.DEFAULT);
-            case DEEPLABV3:
-                return Map.of("output", ConversionMethod.BW);
-            case SEG_NORM_MTL:
-                return Map.of("semseg_out", ConversionMethod.ARGMAX_COLOR,
-                        "normals_out", ConversionMethod.ARGMAX_COLOR);
-            case SWIN_MTL:
-                return Map.of("semseg", ConversionMethod.ARGMAX_COLOR,
-                        "depth", ConversionMethod.BW);
+    public static ConversionMethod stringToConversionMethod(String method) {
+        System.out.println("ONNX conversion string: " + method);
+        switch (method) {
+            case "BLACK AND WHITE":
+                return ConversionMethod.BW;
+            case "COLOR":
+                return ConversionMethod.COLOR;
+            case "ARGMAX COLOR":
+                return ConversionMethod.ARGMAX_COLOR;
             default:
-                return Map.of();
+                return ConversionMethod.DEFAULT;
         }
     }
 }
