@@ -1,2 +1,1 @@
-# ARBenchApp
-Android application for AR benchmarking using MTL models.
+# See java_benchmark for most recent commits
