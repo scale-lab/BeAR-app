@@ -4,10 +4,10 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 
-import androidx.preference.PreferenceFragmentCompat;
 import androidx.preference.PreferenceManager;
 
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
+import com.example.arbenchapp.datatypes.ModelType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 
@@ -25,34 +25,72 @@ import ai.onnxruntime.*;
 public class MTLBox {
 
     private final Settings settings;
+    private final File file;
+    private HardwareMonitor.PyTorchModelMonitor monitor;
+    private HardwareMonitor.HardwareMetrics metrics;
+    private final ModelType modelType;
+    private final MTLBoxStruct default_mbs;
+    private final int secondsBetweenMetrics;
+    private final int framesBetweenMetrics;
 
-    public MTLBox(Settings settings) {
+    public MTLBox(Settings settings, Context context) {
         this.settings = settings;
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        String modelPath = prefs.getString("model_file_selection", "");
+        secondsBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_time", "5"));
+        framesBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_frames", "1"));
+        this.file = getFile(context, modelPath);
+        if (modelPath.length() < 4) {
+            System.err.println("NO MODEL SELECTED!");
+            this.modelType = ModelType.ERROR;
+            this.monitor = null;
+            this.metrics = null;
+        } else if (modelPath.endsWith(".pt")) {
+            this.modelType = ModelType.PT;
+            this.monitor = new HardwareMonitor.PyTorchModelMonitor(
+                    Module.load(file.getPath()), viewSettings(), context);
+            this.metrics = null;
+        } else if (modelPath.endsWith(".onnx")) {
+            this.modelType = ModelType.ONNX;
+            OrtEnvironment env = OrtEnvironment.getEnvironment();
+            try {
+                OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
+                this.monitor = new HardwareMonitor.PyTorchModelMonitor(session, env, viewSettings(), context);
+                this.metrics = new HardwareMonitor.HardwareMetrics(context);
+            } catch (OrtException e) {
+                System.err.println("ORTEXCEPTION: " + e);
+                this.monitor = null;
+                this.metrics = null;
+            }
+        } else {
+            System.err.println("INVALID MODEL TYPE, MUST BE .pt OR .onnx");
+            this.modelType = ModelType.ERROR;
+            this.monitor = null;
+            this.metrics = null;
+        }
+        Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        Map<String, Bitmap> default_map = new HashMap<>();
+        default_map.put("output", default_bm);
+        Double default_tm = 0.0;
+        default_mbs = new MTLBoxStruct(default_map, default_bm, default_tm, null);
     }
 
     public Settings viewSettings() {
         return this.settings;
     }
 
-    public MTLBoxStruct run(Bitmap bitmap, Context context) throws Exception {
-        Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
-        Map<String, Bitmap> default_map = new HashMap<>();
-        default_map.put("output", default_bm);
-        Double default_tm = 0.0;
-        MTLBoxStruct default_mbs =
-                new MTLBoxStruct(default_map, default_bm, default_tm, null);
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-        String modelPath = prefs.getString("model_file_selection", "");
-        if (modelPath.length() < 4) {
-            System.err.println("NO MODEL SELECTED!");
-            return default_mbs;
-        } else if (modelPath.endsWith(".pt")) {
-            return runFromPt(bitmap, context, modelPath);
-        } else if (modelPath.endsWith(".onnx")) {
-            return runFromOnnx(bitmap, context, modelPath);
-        } else {
-            System.err.println("INVALID MODEL TYPE, MUST BE .pt OR .onnx");
-            return default_mbs;
+    public MTLBoxStruct run(Bitmap bitmap) throws Exception {
+        switch (modelType) {
+            case PT:
+                return runFromPt(bitmap);
+            case ONNX:
+                return runFromOnnx(bitmap);
+            case ERROR:
+                System.err.println("PREVIOUS ERROR IN DETERMINING MODEL TYPE");
+                return default_mbs;
+            default:
+                System.err.println("UNKNOWN MODEL TYPE");
+                return default_mbs;
         }
     }
 
@@ -73,15 +111,8 @@ public class MTLBox {
         return file;
     }
 
-    private MTLBoxStruct runFromPt(Bitmap bitmap, Context context, String filename) throws Exception {
-        File file = getFile(context, filename);
-
-        Module model = Module.load(file.getPath());
-
-        HardwareMonitor.PyTorchModelMonitor ptmm =
-                new HardwareMonitor.PyTorchModelMonitor(model, viewSettings(), context);
-        HardwareMonitor.HardwareMetrics res = ptmm.executeAndMonitor(bitmap);
-
+    private MTLBoxStruct runFromPt(Bitmap bitmap) throws Exception {
+        HardwareMonitor.HardwareMetrics res = monitor.executeAndMonitor(bitmap);
         Double mtm = res.executionTimeMs;
         Map<String, Bitmap> out = res.output;
         if (out == null) {
@@ -95,20 +126,16 @@ public class MTLBox {
         return new MTLBoxStruct(out, bitmap, mtm, res);
     }
 
-    private MTLBoxStruct runFromOnnx(Bitmap bitmap, Context context, String filename) {
-        Thread currentThread = Thread.currentThread();
-        System.out.println("ONNX: RUNFROMONNX START! " + currentThread.getName() + ", " + currentThread.getId());
-        Map<String, Bitmap> default_map = new HashMap<>();
-        default_map.put("output", bitmap);
-        MTLBoxStruct mtlBoxStruct = new MTLBoxStruct(default_map, bitmap, 0.0, null);
-        OrtEnvironment env = OrtEnvironment.getEnvironment();
+    private MTLBoxStruct runFromOnnx(Bitmap bitmap) {
+        if (!monitor.hasStarted()) {
+            monitor.startExecuteAndMonitor();
+        }
+        double startTime = System.nanoTime();
+        Map<String, Bitmap> output;
         try {
-            File file = getFile(context, filename);
-            System.out.println("ONNX: filename: " + filename);
-            OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
             if (!viewSettings().isDimsInit()) {
                 System.err.println("ONNX: IMAGE DIMENSIONS NOT SPECIFIED IN SETTINGS!");
-                return mtlBoxStruct;
+                return default_mbs;
             }
             Bitmap scaled = Bitmap.createScaledBitmap(
                     bitmap,
@@ -116,15 +143,18 @@ public class MTLBox {
                     viewSettings().getImgHeight(),
                     true
             );
-            HardwareMonitor.PyTorchModelMonitor omm =
-                    new HardwareMonitor.PyTorchModelMonitor(session, env, viewSettings(), context);
-            HardwareMonitor.HardwareMetrics res = omm.executeAndMonitor(scaled);
-            return new MTLBoxStruct(res.output, scaled, res.executionTimeMs, res);
-        } catch (OrtException ortException) {
-            System.err.println("ONNX: EXCEPTION WHEN CREATING OR USING OrtSession: "
-                    + ortException.getMessage());
+            output = monitor.runInference(scaled);
+        } catch (OrtException e) {
+            System.err.println("ONNX ORTEXCEPTION: " + e.getMessage());
+            return default_mbs;
         }
-        return mtlBoxStruct;
+        System.out.println("ONNX cur time: " + monitor.getCurrentTime() + ", num frames: " + monitor.getNumFrames());
+        System.out.println("ONNX max time: " + secondsBetweenMetrics + ", max frames: " + framesBetweenMetrics);
+        if (monitor.getCurrentTime() > secondsBetweenMetrics || monitor.getNumFrames() >= framesBetweenMetrics) {
+            HardwareMonitor.HardwareMetrics hardwareMetrics = monitor.finishExecuteAndMonitor();
+            return new MTLBoxStruct(output, bitmap, hardwareMetrics.executionTimeMs, hardwareMetrics);
+        }
+        return new MTLBoxStruct(output, bitmap, (System.nanoTime() - startTime) / 1_000_000);
     }
 
 }

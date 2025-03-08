@@ -171,17 +171,10 @@ public final class ImageConversionUtil {
                     int chosenChannel = 0;
                     float maxChannel = layer[0][h][w];
                     for (int c = 1; c < channels; c++) {
-                        if (w == 125 && h == 125) {
-                            System.out.println("ONNX Current Max Channel: " + maxChannel + " at " + chosenChannel);
-                            System.out.println("ONNX This channel: " + layer[c][h][w] + " at " + c);
-                        }
                         if (layer[c][h][w] > maxChannel) {
                             chosenChannel = c;
                             maxChannel = layer[c][h][w];
                         }
-                    }
-                    if (chosenChannel != 0) {
-                        System.out.println("ONNX chosen channel for " + w + ", " + h + ": " + chosenChannel);
                     }
                     Integer[] color = colors.getOrDefault(chosenChannel, new Integer[]{255, 0, 0});
                     assert color != null;

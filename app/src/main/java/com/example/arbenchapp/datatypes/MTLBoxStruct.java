@@ -6,7 +6,6 @@ import android.graphics.Bitmap;
 
 import androidx.preference.PreferenceManager;
 
-import com.example.arbenchapp.MTLBox;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.example.arbenchapp.util.ConversionUtil;
 import com.google.common.reflect.TypeToken;
@@ -23,6 +22,7 @@ public class MTLBoxStruct {
     private final Map<String, Bitmap> bitmaps;
     private final Bitmap input;
     private final Double ms;
+    private boolean newMetrics;
     private HardwareMonitor.HardwareMetrics metrics = null;
 
     private Map<String, Bitmap> convert(Map<String, Tensor> tensors, Context context, int w, int h) {
@@ -48,13 +48,23 @@ public class MTLBoxStruct {
         this.bitmaps = bitmaps;
         this.input = input;
         this.ms = ms;
+        this.newMetrics = true;
         this.metrics = metrics;
+    }
+
+    public MTLBoxStruct(Map<String, Bitmap> bitmaps, Bitmap input, Double ms) {
+        this.bitmaps = bitmaps;
+        this.input = input;
+        this.ms = ms;
+        this.newMetrics = false;
+        this.metrics = null;
     }
 
     public MTLBoxStruct(Map<String, Tensor> tensors, Bitmap input, Context context, Double ms, HardwareMonitor.HardwareMetrics metrics, int w, int h) {
         this.bitmaps = convert(tensors, context, w, h);
         this.input = input;
         this.ms = ms;
+        this.newMetrics = true;
         this.metrics = metrics;
     }
 
@@ -65,6 +75,8 @@ public class MTLBoxStruct {
     public Double getTime() {
         return this.ms;
     }
+
+    public boolean hasOldMetrics() { return !this.newMetrics; }
 
     public HardwareMonitor.HardwareMetrics getMetrics() { return this.metrics; }
 }
