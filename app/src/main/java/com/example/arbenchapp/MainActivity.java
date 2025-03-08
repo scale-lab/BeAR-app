@@ -1,5 +1,7 @@
 package com.example.arbenchapp;
 
+import static java.lang.Math.abs;
+
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
@@ -17,11 +19,13 @@ import com.example.arbenchapp.datatypes.Resolution;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.example.arbenchapp.util.CameraUtil;
+import com.example.arbenchapp.util.ConversionUtil;
 import com.google.android.material.navigation.NavigationView;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.navigation.NavController;
@@ -35,8 +39,9 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.example.arbenchapp.databinding.ActivityMainBinding;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +59,8 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
     private final Object processingLock = new Object();
     private boolean isProcessingInference = false;
+    private SharedPreferences prefs;
+    private SharedPreferences.OnSharedPreferenceChangeListener listener;
 
     // Registers a photo picker activity launcher in single-select mode.
     ActivityResultLauncher<PickVisualMediaRequest> pickMedia =
@@ -63,10 +70,9 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                 if (uri != null) {
                     Log.d("PhotoPicker", "Selected URI: " + uri);
                     try {
-                        // BUG: switching tabs messes with image positioning
                         Bitmap bitmap = MediaStore.Images.Media.getBitmap(this.getContentResolver(), uri);
 
-                        MTLBoxStruct processed = mtlBox.run(bitmap, this);
+                        MTLBoxStruct processed = mtlBox.run(bitmap);
                         Map<String, Bitmap> bms = processed.getBitmaps();
 
                         ImagePage inputIp = new ImagePage(processed.getInput(), "Input Image");
@@ -74,9 +80,11 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                         adapter.notifyDataSetChanged();
                         imagePageList.add(inputIp);
                         adapter.notifyItemChanged(0);
+                        boolean write = true;
                         for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
-                            imagePageList.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed)));
+                            imagePageList.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
                             adapter.notifyItemChanged(imagePageList.size() - 1);
+                            write = false;
                         }
                     } catch (Exception e) {
                         throw new RuntimeException(e);
@@ -101,16 +109,26 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         adapter = new ImagePageAdapter(context, imagePageList);
         viewPager2.setAdapter(adapter);
 
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        prefs = PreferenceManager.getDefaultSharedPreferences(this);
         res = new Resolution(prefs.getString("resolution", "224,224"));
         Settings s = new Settings(res.getHeight(), res.getWidth());
-        mtlBox = new MTLBox(s);
+        mtlBox = new MTLBox(s, this);
+
+        listener = new SharedPreferences.OnSharedPreferenceChangeListener() {
+            @Override
+            public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, @Nullable String s) {
+                System.out.println("ONNX preferences changed");
+                res = new Resolution(sharedPreferences.getString("resolution", "224,224"));
+                Settings new_s = new Settings(res.getHeight(), res.getWidth());
+                mtlBox = new MTLBox(new_s, context);
+            }
+        };
+        prefs.registerOnSharedPreferenceChangeListener(listener);
 
         setSupportActionBar(binding.appBarMain.toolbar);
         binding.appBarMain.fab.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
                 if (!prefs.getBoolean("use_camera", false)) {
                     pickMedia.launch(new PickVisualMediaRequest.Builder()
                             .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
@@ -128,8 +146,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         });
         DrawerLayout drawer = binding.drawerLayout;
         NavigationView navigationView = binding.navView;
-        // Passing each menu ID as a set of Ids because each
-        // menu should be considered as top level destinations.
+
         mAppBarConfiguration = new AppBarConfiguration.Builder(
                 R.id.nav_home, R.id.nav_gallery, R.id.nav_slideshow)
                 .setOpenableLayout(drawer)
@@ -141,7 +158,6 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
         getMenuInflater().inflate(R.menu.main, menu);
         return true;
     }
@@ -177,7 +193,6 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
             }
         });
 
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (prefs.getBoolean("run_inference", true)) {
             synchronized (processingLock) {
                 if (isProcessingInference) {
@@ -187,11 +202,13 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
             }
             inferenceExecutor.execute(() -> {
                 try {
-                    MTLBoxStruct processed = mtlBox.run(bitmap, this);
+                    MTLBoxStruct processed = mtlBox.run(bitmap);
                     Map<String, Bitmap> bms = processed.getBitmaps();
                     final List<ImagePage> newPages = new ArrayList<>();
+                    boolean write = true;
                     for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
-                        newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed)));
+                        newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
+                        write = false;
                     }
                     runOnUiThread(() -> {
                         System.out.println("ONNX adding pages");
@@ -199,7 +216,13 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                             if (imagePageList.size() < i + 2) {
                                 imagePageList.add(newPages.get(i));
                             } else {
-                                imagePageList.set(i + 1, newPages.get(i));
+                                if (processed.hasOldMetrics()) {
+                                    System.out.println("ONNX no new metrics");
+                                    ImagePage hasPrevMetrics = new ImagePage(newPages.get(i).getImage(), imagePageList.get(i + 1).getCaption());
+                                    imagePageList.set(i + 1, hasPrevMetrics);
+                                } else {
+                                    imagePageList.set(i + 1, newPages.get(i));
+                                }
                             }
                         }
                         adapter.notifyDataSetChanged();
@@ -246,12 +269,25 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         if (inferenceExecutor != null && !inferenceExecutor.isShutdown()) {
             inferenceExecutor.shutdown();
         }
+        if (prefs != null && listener != null) {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener);
+        }
     }
 
-    public String createDisplayString(String output, MTLBoxStruct processed) {
+    public String createDisplayString(String output, MTLBoxStruct processed, boolean write) {
+        if (processed.hasOldMetrics()) {
+            return "Processing...";
+        }
         Double tm = processed.getTime();
         HardwareMonitor.HardwareMetrics metrics = processed.getMetrics();
         String[] messages = getMessages(tm, metrics);
+        if (write) {
+            LocalDateTime now = LocalDateTime.now();
+            DateTimeFormatter dtf = DateTimeFormatter.ofPattern("HH-mm-ss");
+            String dtfTime = now.format(dtf);
+            String filename = "log_" + LocalDate.now() + "_" + dtfTime + "_" + prefs.getString("model_file_selection", "UNKNOWN-FILE").split("\\.")[0] + ".txt";
+            ConversionUtil.logArray(this, messages, filename);
+        }
         StringBuilder displayStrBuilt = new StringBuilder();
         displayStrBuilt.append(output).append("\n");
         for (String m : messages) {
@@ -267,34 +303,36 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     }
 
     private String [] getMessages(Double tm, HardwareMonitor.HardwareMetrics metrics) {
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         String nullMetricsMessage = "ERR: Returned NULL metrics";
         int decimalPoints = 2;
         String timeDisplay = prefs.getBoolean("runtime_model", true) ?
-                "Runtime: " + tm + " ms" : "";
+                "Runtime: " + ConversionUtil.round(tm, decimalPoints) + " ms" : "";
         String timeDisplayProcessing = prefs.getBoolean("runtime_total", true) ?
-                "Runtime with Postprocessing: " + metrics.executionWithProcessing + "ms" : "";
+                "Runtime with Postprocessing: " + ConversionUtil.round(metrics.executionWithProcessing, decimalPoints) + "ms" : "";
+        String fps = prefs.getBoolean("fps", true) ?
+                "FPS: " + ConversionUtil.round(metrics.fps, decimalPoints) : "";
         String cpuUsagePercentDisplay = prefs.getBoolean("cpu_usage", true) ?
-                "CPU Usage Percent: " + round(metrics.cpuUsagePercent, decimalPoints) + "%" : "";
+                "CPU Usage Percent: " + ConversionUtil.round(metrics.cpuUsagePercent, decimalPoints) + "%" : "";
         String cpuUsageDeltaDisplay = prefs.getBoolean("cpu_usage_delta", true) ?
-                "CPU Usage Percent Delta: " + round(metrics.cpuUsageDelta, decimalPoints) + "%" : "";
+                "CPU Usage Percent Delta: " + ConversionUtil.round(metrics.cpuUsageDelta, decimalPoints) + "%" : "";
         String threadCpuTimeDisplay = prefs.getBoolean("cpu_thread_time", true) ?
-                "Thread CPU Time: " + round(metrics.threadCpuTimeMs, decimalPoints) + "ms" : "";
+                "Thread CPU Time: " + ConversionUtil.round(metrics.threadCpuTimeMs, decimalPoints) + "ms" : "";
         String memoryUsedDisplay = prefs.getBoolean("memory_usage", true) ?
-                "Memory Used: " + round(metrics.memoryUsedBytes, decimalPoints) + " bytes" : "";
+                "Memory Difference: " + ConversionUtil.byteString(abs(metrics.memoryUsedBytes), decimalPoints) : "";
         String batteryUsedDisplay = prefs.getBoolean("battery_usage", true) ?
-                "Battery Used: " + round(metrics.batteryPercentageUsed, decimalPoints) + "%" : "";
+                "Battery Used: " + ConversionUtil.round(metrics.batteryPercentageUsed, decimalPoints) + "%" : "";
         String powerConsumedDisplay = prefs.getBoolean("power_consumed", true) ?
-                "Power Consumed: " + round(metrics.powerConsumedMicroWattHours, decimalPoints) + "mWh" : "";
+                "Power Consumed: " + ConversionUtil.round(metrics.powerConsumedMicroWattHours, decimalPoints) + "mWh" : "";
         String temperatureChangeDisplay = prefs.getBoolean("temp_change", true) ?
-                "Temperature Change: " + round(metrics.temperatureChangeCelsius, decimalPoints) + " degrees Celsius" : "";
+                "Temperature Change: " + ConversionUtil.round(metrics.temperatureChangeCelsius, decimalPoints) + " degrees Celsius" : "";
         String finalTemperatureDisplay = prefs.getBoolean("temp_final", true) ?
-                "Final Temperature: " + round(metrics.finalTemperatureCelsius, decimalPoints) + " degrees Celsius" : "";
+                "Final Temperature: " + ConversionUtil.round(metrics.finalTemperatureCelsius, decimalPoints) + " degrees Celsius" : "";
         String averageCurrentDisplay = prefs.getBoolean("current_avg", true) ?
-                "Average Current: " + round(metrics.averageCurrentDrainMicroAmps, decimalPoints) + " microA" : "";
+                "Average Current: " + ConversionUtil.round(metrics.averageCurrentDrainMicroAmps, decimalPoints) + " microA" : "";
         return new String[]{
                 timeDisplay,
                 timeDisplayProcessing,
+                fps,
                 cpuUsagePercentDisplay,
                 cpuUsageDeltaDisplay,
                 threadCpuTimeDisplay,
@@ -305,13 +343,5 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                 finalTemperatureDisplay,
                 averageCurrentDisplay
         };
-    }
-
-    public static double round(double value, int places) {
-        if (places < 0) throw new IllegalArgumentException();
-
-        BigDecimal bd = BigDecimal.valueOf(value);
-        bd = bd.setScale(places, RoundingMode.HALF_UP);
-        return bd.doubleValue();
     }
 }

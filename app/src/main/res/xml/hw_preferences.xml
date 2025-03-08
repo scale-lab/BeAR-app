@@ -9,6 +9,10 @@
         android:title="Runtime (With Postprocessing)"
         android:defaultValue="true" />
     <SwitchPreferenceCompat
+        android:key="fps"
+        android:title="Frames per Second"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
         android:key="cpu_usage"
         android:title="CPU Usage Percent"
         android:defaultValue="true" />

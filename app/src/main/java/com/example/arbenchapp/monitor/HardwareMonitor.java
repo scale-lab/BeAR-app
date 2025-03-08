@@ -22,7 +22,6 @@ import org.pytorch.IValue;
 import org.pytorch.Tensor;
 
 import java.lang.reflect.Type;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -79,6 +78,9 @@ public class HardwareMonitor {
     public static class HardwareMetrics {
         public double executionTimeMs;
         public double executionWithProcessing;
+        public double fps;
+        public double totalTime;
+        public int totalFrames;
         public double cpuUsagePercent;
         public double cpuUsageDelta;
         public double threadCpuTimeMs;
@@ -93,6 +95,9 @@ public class HardwareMonitor {
         public HardwareMetrics(
                 double executionTimeMs,
                 double executionWithProcessing,
+                double fps,
+                double totalTime,
+                int totalFrames,
                 double cpuUsagePercent,
                 double cpuUsageDelta,
                 double threadCpuTimeMs,
@@ -101,6 +106,9 @@ public class HardwareMonitor {
                 BatteryStats endStats) {
             this.executionTimeMs = executionTimeMs;
             this.executionWithProcessing = executionWithProcessing;
+            this.fps = fps;
+            this.totalTime = totalTime;
+            this.totalFrames = totalFrames;
             this.cpuUsagePercent = cpuUsagePercent;
             this.cpuUsageDelta = cpuUsageDelta;
             this.threadCpuTimeMs = threadCpuTimeMs;
@@ -118,12 +126,41 @@ public class HardwareMonitor {
                     endStats.temperature - startStats.temperature;
             this.finalTemperatureCelsius = endStats.temperature;
         }
+
+        public HardwareMetrics(Context context) {
+            this.executionTimeMs = 0;
+            this.executionWithProcessing = 0;
+            this.fps = 0;
+            this.totalTime = 0;
+            this.totalFrames = 0;
+            this.cpuUsagePercent = 0;
+            this.cpuUsageDelta = 0;
+            this.threadCpuTimeMs = 0;
+            this.memoryUsedBytes = 0;
+
+            Intent batteryIntent = context.registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            assert batteryIntent != null;
+            BatteryManager bm = (BatteryManager) context.getSystemService(Context.BATTERY_SERVICE);
+            BatteryStats bs = new BatteryStats(bm, batteryIntent);
+
+            this.batteryPercentageUsed = (long) (bs.batteryLevel);
+
+            this.averageCurrentDrainMicroAmps = 0;
+            this.powerConsumedMicroWattHours = 0;
+
+            this.temperatureChangeCelsius = 0;
+            this.finalTemperatureCelsius = bs.temperature;
+        }
     }
 
     public HardwareMetrics getBaseMetrics() {
         return new HardwareMetrics(
                 0.0,
                 0.0,
+                0.0,
+                0.0,
+                0,
                 getCpuUsage(),
                 0.0,
                 (double) getThreadCpuTimeMs(),
@@ -173,6 +210,14 @@ public class HardwareMonitor {
         private final HardwareMonitor hardwareMonitor;
         private final boolean outputDict;
         private long lastExecutionTime = 0;
+        private final Map<String, String> outputMappings;
+        private HardwareMetrics startMetrics;
+        private BatteryStats startBattery;
+        private double startTime;
+        private boolean started;
+        private int numFrames;
+        private double avgTime;
+        private double avgTimePP;
 
         public PyTorchModelMonitor(Module model, Settings settings, Context context) {
             this.model = model;
@@ -181,6 +226,14 @@ public class HardwareMonitor {
             this.env = null;
             this.hardwareMonitor = new HardwareMonitor(context);
             outputDict = false;
+            if (prefs == null) {
+                prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
+            }
+            String json = prefs.getString("output_option_mappings", "");
+            Gson gson = new Gson();
+            Type type = new TypeToken<HashMap<String, String>>(){}.getType();
+            outputMappings = gson.fromJson(json, type);
+            started = false;
         }
 
         public PyTorchModelMonitor(OrtSession model, OrtEnvironment env, Settings settings, Context context) {
@@ -190,18 +243,136 @@ public class HardwareMonitor {
             this.env = env;
             this.hardwareMonitor = new HardwareMonitor(context);
             outputDict = true;
-        }
-
-        public HardwareMetrics executeAndMonitor(Bitmap input) throws OrtException {
             if (prefs == null) {
                 prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
             }
-
             String json = prefs.getString("output_option_mappings", "");
             Gson gson = new Gson();
             Type type = new TypeToken<HashMap<String, String>>(){}.getType();
-            Map<String, String> outputMappings = gson.fromJson(json, type);
+            outputMappings = gson.fromJson(json, type);
+            started = false;
+        }
 
+        public void startExecuteAndMonitor() {
+            started = true;
+            startMetrics = hardwareMonitor.getBaseMetrics();
+            startBattery = hardwareMonitor.getBatteryStats();
+            startTime = System.nanoTime();
+            numFrames = 0;
+            avgTime = 0;
+            avgTimePP = 0;
+        }
+
+        public Map<String, Bitmap> runInference(Bitmap input) throws OrtException {
+            if (!started) {
+                System.out.println("CANNOT RUN INFERENCE WITHOUT STARTING METRICS");
+                return null;
+            }
+            double startInfTime;
+            double endInfTime;
+            double startPPTime = System.nanoTime();
+            numFrames++;
+            // Execute model
+            Map<String, Bitmap> output = new HashMap<>();
+            if (outputDict) {
+                if (session == null) {
+                    System.err.println("ERROR: Session should not be null.");
+                    return null;
+                }
+                OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
+                Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", inp);
+                startInfTime = System.nanoTime();
+                OrtSession.Result outputs = session.run(inputs);
+                endInfTime = System.nanoTime();
+                for (Map.Entry<String, OnnxValue> entry : outputs) {
+                    String key = entry.getKey();
+                    OnnxValue value = entry.getValue();
+                    if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
+                        float[][][][] ft = (float[][][][]) value.getValue();
+                        Bitmap bm = ConversionUtil.FloatArrayToImage(
+                                ft,
+                                ConversionUtil.stringToConversionMethod(
+                                        Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
+                                )
+                        );
+                        output.put(key, bm);
+                    } else {
+                        System.err.println("ONNX ERROR: Value isn't in tensor.");
+                        return null;
+                    }
+                }
+                System.out.println("ONNX: " + output.toString());
+            } else {
+                if (model == null) {
+                    System.err.println("ERROR: Model should not be null.");
+                    return null;
+                }
+                Tensor inp = ConversionUtil.bitmapToTensor(input);
+                startInfTime = System.nanoTime();
+                Tensor out_val = model.forward(IValue.from(inp)).toTensor();
+                endInfTime = System.nanoTime();
+                String key = "output";
+                output.put(key, ConversionUtil.TensorToImage(
+                        out_val,
+                        ConversionUtil.stringToConversionMethod(
+                                Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
+                        ),
+                        input.getWidth(),
+                        input.getHeight())
+                );
+            }
+            long endPPTime = System.nanoTime();
+            if (numFrames == 1) {
+                avgTime = endInfTime - startInfTime;
+                avgTimePP = endPPTime - startPPTime;
+            } else {
+                avgTime = ((avgTime * (numFrames - 1)) / numFrames) + ((endInfTime - startInfTime) / numFrames);
+                avgTimePP = ((avgTimePP * (numFrames - 1)) / numFrames) + ((endPPTime - startPPTime) / numFrames);
+            }
+            return output;
+        }
+
+        public HardwareMetrics finishExecuteAndMonitor() {
+            started = false;
+
+            // Get post-execution metrics
+            double endTime = System.nanoTime();
+            HardwareMetrics endMetrics = hardwareMonitor.getBaseMetrics();
+            BatteryStats endBatteryStats = hardwareMonitor.getBatteryStats();
+
+            // Calculate execution time
+            double totalExecutionTime = (endTime - startTime) / 1_000_000; // Convert to milliseconds
+            double fps = numFrames / (totalExecutionTime / 1_000);
+            double avgExecution = avgTime / 1_000_000;
+            double avgExecutionWithProcessing = avgTimePP / 1_000_000;
+            double cpuUsageDelta = endMetrics.cpuUsagePercent - startMetrics.cpuUsagePercent;
+            long memoryUsedBytes = endMetrics.memoryUsedBytes - startMetrics.memoryUsedBytes;
+
+            // return metrics
+            return new HardwareMetrics(
+                    avgExecution,
+                    avgExecutionWithProcessing,
+                    fps,
+                    totalExecutionTime,
+                    numFrames,
+                    endMetrics.cpuUsagePercent,
+                    cpuUsageDelta,
+                    endMetrics.threadCpuTimeMs,
+                    memoryUsedBytes,
+                    startBattery,
+                    endBatteryStats
+            );
+        }
+
+        public int getNumFrames() { return numFrames; }
+
+        public double getCurrentTime() {
+            return (System.nanoTime() - startTime) / 1_000_000_000;
+        }
+
+        public boolean hasStarted() { return started; }
+
+        public HardwareMetrics executeAndMonitor(Bitmap input) throws OrtException {
             System.out.println("ONNX: " + Debug.getRuntimeStats());
             System.out.println("ONNX should get runtime: " + prefs.getBoolean("runtime_model", true));
 
@@ -229,7 +400,6 @@ public class HardwareMonitor {
                     OnnxValue value = entry.getValue();
                     if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
                         float[][][][] ft = (float[][][][]) value.getValue();
-                        System.out.println("ONNX " + key + ": " + Arrays.deepToString(ft));
                         Bitmap bm = ConversionUtil.FloatArrayToImage(
                                 ft,
                                 ConversionUtil.stringToConversionMethod(
@@ -278,6 +448,9 @@ public class HardwareMonitor {
             HardwareMetrics metrics = new HardwareMetrics(
                     executionTime,
                     executionWithProcessing,
+                    1.0 / (executionWithProcessing / 1_000.0),
+                    executionWithProcessing,
+                    1,
                     postMetrics.cpuUsagePercent,
                     cpuUsageDelta,
                     postMetrics.threadCpuTimeMs,

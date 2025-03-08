@@ -1,18 +1,24 @@
 package com.example.arbenchapp.util;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.os.Environment;
 
 import com.example.arbenchapp.datatypes.ConversionMethod;
 
 import org.pytorch.Tensor;
 import org.pytorch.torchvision.TensorImageUtils;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.text.DecimalFormat;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
@@ -109,6 +115,59 @@ public final class ConversionUtil {
                 return ConversionMethod.ARGMAX_COLOR;
             default:
                 return ConversionMethod.DEFAULT;
+        }
+    }
+
+    public static String round(double value, int places) {
+        if (places < 0) throw new IllegalArgumentException();
+
+        DecimalFormat df = new DecimalFormat("#");
+        df.setMaximumFractionDigits(places);
+        return df.format(value);
+    }
+
+    public static String byteString(double value, int places) {
+        String unit;
+        if (value > 1_000_000_000) {
+            unit = " GB";
+            value /= 1_000_000_000;
+        } else if (value > 1_000_000) {
+            unit = " MB";
+            value /= 1_000_000;
+        } else {
+            unit = " bytes";
+        }
+        return round(value, places) + unit;
+    }
+
+    public static void logArray(Context context, String[] data, String filename) {
+        String state = Environment.getExternalStorageState();
+        if (!Environment.MEDIA_MOUNTED.equals(state)) {
+            System.err.println("ONNX external storage not writable!");
+            return;
+        }
+        File externalDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "BeAR_Logs");
+        if (!externalDir.exists()) {
+            externalDir.mkdirs();
+        }
+        File file = new File(externalDir, filename);
+        FileOutputStream fos = null;
+        try {
+            String content = android.text.TextUtils.join("\n", data);
+            fos = new FileOutputStream(file);
+            fos.write(content.getBytes());
+            fos.flush();
+            System.out.println("ONNX file write successful!");
+        } catch (IOException e) {
+            System.err.println("ONNX error with file: " + e.getMessage());
+        } finally {
+            if (fos != null) {
+                try {
+                    fos.close();
+                } catch (IOException e) {
+                    System.err.println("ONNX error with file: " + e.getMessage());
+                }
+            }
         }
     }
 }
