@@ -95,7 +95,13 @@ public final class ConversionUtil {
     public static Bitmap FloatArrayToImage(float[][][][] data, ConversionMethod method) {
         switch (method) {
             case ARGMAX_COLOR:
-                return ImageConversionUtil.ColorConvert(data);
+                try {
+                    return ImageConversionUtil.ColorConvert(data);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(
+                            "TIMEEC ERROR: " + e
+                    );
+                }
             case BW:
                 return ImageConversionUtil.BWConvert(data);
             default:
