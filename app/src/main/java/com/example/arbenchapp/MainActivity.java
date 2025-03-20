@@ -56,7 +56,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     private List<ImagePage> imagePageList;
     private MTLBox mtlBox;
     private Resolution res;
-    private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService inferenceExecutor = Executors.newFixedThreadPool(1);
     private final Object processingLock = new Object();
     private boolean isProcessingInference = false;
     private SharedPreferences prefs;
@@ -186,7 +186,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
             ImagePage ip = new ImagePage(bitmap, "Input Image");
             if (imagePageList.isEmpty()) {
                 imagePageList.add(ip);
-                adapter.notifyDataSetChanged();
+                adapter.notifyItemChanged(0);
             } else {
                 imagePageList.set(0, ip);
                 adapter.notifyItemChanged(0);
@@ -251,7 +251,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                 ImagePage ip = new ImagePage(bitmap, "Test Second Image");
                 if (imagePageList.size() < 2) {
                     imagePageList.add(ip);
-                    adapter.notifyDataSetChanged();
+                    adapter.notifyItemChanged(imagePageList.size() - 1);
                 } else {
                     imagePageList.set(1, ip);
                     adapter.notifyItemChanged(1);
@@ -306,9 +306,9 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         String nullMetricsMessage = "ERR: Returned NULL metrics";
         int decimalPoints = 2;
         String timeDisplay = prefs.getBoolean("runtime_model", true) ?
-                "Runtime: " + ConversionUtil.round(tm, decimalPoints) + " ms" : "";
+                "Inference Time: " + ConversionUtil.round(tm, decimalPoints) + " ms" : "";
         String timeDisplayProcessing = prefs.getBoolean("runtime_total", true) ?
-                "Runtime with Postprocessing: " + ConversionUtil.round(metrics.executionWithProcessing, decimalPoints) + "ms" : "";
+                "Per Frame Runtime: " + ConversionUtil.round(metrics.executionWithProcessing, decimalPoints) + " ms" : "";
         String fps = prefs.getBoolean("fps", true) ?
                 "FPS: " + ConversionUtil.round(metrics.fps, decimalPoints) : "";
         String cpuUsagePercentDisplay = prefs.getBoolean("cpu_usage", true) ?
@@ -316,13 +316,13 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         String cpuUsageDeltaDisplay = prefs.getBoolean("cpu_usage_delta", true) ?
                 "CPU Usage Percent Delta: " + ConversionUtil.round(metrics.cpuUsageDelta, decimalPoints) + "%" : "";
         String threadCpuTimeDisplay = prefs.getBoolean("cpu_thread_time", true) ?
-                "Thread CPU Time: " + ConversionUtil.round(metrics.threadCpuTimeMs, decimalPoints) + "ms" : "";
+                "Thread CPU Time: " + ConversionUtil.round(metrics.threadCpuTimeMs, decimalPoints) + " ms" : "";
         String memoryUsedDisplay = prefs.getBoolean("memory_usage", true) ?
                 "Memory Difference: " + ConversionUtil.byteString(abs(metrics.memoryUsedBytes), decimalPoints) : "";
         String batteryUsedDisplay = prefs.getBoolean("battery_usage", true) ?
                 "Battery Used: " + ConversionUtil.round(metrics.batteryPercentageUsed, decimalPoints) + "%" : "";
         String powerConsumedDisplay = prefs.getBoolean("power_consumed", true) ?
-                "Power Consumed: " + ConversionUtil.round(metrics.powerConsumedMicroWattHours, decimalPoints) + "mWh" : "";
+                "Power Consumed: " + ConversionUtil.round(metrics.powerConsumedMicroWattHours, decimalPoints) + " mWh" : "";
         String temperatureChangeDisplay = prefs.getBoolean("temp_change", true) ?
                 "Temperature Change: " + ConversionUtil.round(metrics.temperatureChangeCelsius, decimalPoints) + " degrees Celsius" : "";
         String finalTemperatureDisplay = prefs.getBoolean("temp_final", true) ?

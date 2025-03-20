@@ -25,6 +25,8 @@ import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxTensorLike;
@@ -155,13 +157,14 @@ public class HardwareMonitor {
     }
 
     public HardwareMetrics getBaseMetrics() {
+        double cpuUsage = getCpuUsage();
         return new HardwareMetrics(
                 0.0,
                 0.0,
                 0.0,
                 0.0,
                 0,
-                getCpuUsage(),
+                cpuUsage,
                 0.0,
                 (double) getThreadCpuTimeMs(),
                 (long) getAvailMemory(),
@@ -169,17 +172,38 @@ public class HardwareMonitor {
                 getBatteryStats());
     }
 
+    private long lastRealTime = 0;
+    private long lastCpuUsage = 0;
+    private double cachedCpuUsage = 0;
     private double getCpuUsage() {
         try {
             long currentCpuTime = Debug.threadCpuTimeNanos();
-            double cpuDelta = (currentCpuTime - lastCpuTime) / 1_000_000.0;
+            long currentRealTime = System.nanoTime();
+
+            if (lastRealTime == 0) {
+                lastCpuTime = currentCpuTime;
+                lastRealTime = currentRealTime;
+                return cachedCpuUsage;
+            }
+
+            long cpuTimeDelta = currentCpuTime - lastCpuTime;
+            long realTimeDelta = currentRealTime - lastRealTime;
+
             lastCpuTime = currentCpuTime;
+            lastRealTime = currentRealTime;
 
+            if (realTimeDelta <= 0) {
+                return lastCpuUsage;
+            }
+
+            double cpuUsage = ((double) cpuTimeDelta / realTimeDelta) * 100.0;
             int processors = Runtime.getRuntime().availableProcessors();
+            cpuUsage = cpuUsage / processors;
+            cachedCpuUsage = cpuUsage;
 
-            return (cpuDelta / (1000.0 * processors)) * 100.0;
+            return cpuUsage;
         } catch (Exception e) {
-            Log.e(TAG, "CONV2D .. Error reading CPU usage", e);
+            Log.e(TAG, "Error reading CPU usage", e);
             return 0.0;
         }
     }
@@ -214,6 +238,7 @@ public class HardwareMonitor {
         private HardwareMetrics startMetrics;
         private BatteryStats startBattery;
         private double startTime;
+        private double startCpuUsage;
         private boolean started;
         private int numFrames;
         private double avgTime;
@@ -261,6 +286,7 @@ public class HardwareMonitor {
             numFrames = 0;
             avgTime = 0;
             avgTimePP = 0;
+            startCpuUsage = startMetrics.cpuUsagePercent;
         }
 
         public Map<String, Bitmap> runInference(Bitmap input) throws OrtException {

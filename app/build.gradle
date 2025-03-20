@@ -6,6 +6,13 @@ android {
     namespace 'com.example.arbenchapp'
     compileSdk 34
 
+    ndkVersion "26.1.10909125"
+    externalNativeBuild {
+        cmake {
+            path "src/main/CMakeLists.txt"
+        }
+    }
+
     defaultConfig {
         applicationId "com.example.arbenchapp"
         minSdk 26
@@ -55,4 +62,5 @@ dependencies {
     implementation libs.camera.camera2
     implementation libs.guava
     implementation libs.gson
+    debugImplementation libs.leakcanary.android
 }

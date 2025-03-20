@@ -137,19 +137,22 @@ public class MTLBox {
                 System.err.println("ONNX: IMAGE DIMENSIONS NOT SPECIFIED IN SETTINGS!");
                 return default_mbs;
             }
-            Bitmap scaled = Bitmap.createScaledBitmap(
-                    bitmap,
-                    viewSettings().getImgWidth(),
-                    viewSettings().getImgHeight(),
-                    true
-            );
-            output = monitor.runInference(scaled);
+            if (bitmap.getWidth() != viewSettings().getImgWidth() ||
+                bitmap.getHeight() != viewSettings().getImgHeight()) {
+                Bitmap scaled = Bitmap.createScaledBitmap(
+                        bitmap,
+                        viewSettings().getImgWidth(),
+                        viewSettings().getImgHeight(),
+                        true
+                );
+                output = monitor.runInference(scaled);
+            } else {
+                output = monitor.runInference(bitmap);
+            }
         } catch (OrtException e) {
             System.err.println("ONNX ORTEXCEPTION: " + e.getMessage());
             return default_mbs;
         }
-        System.out.println("ONNX cur time: " + monitor.getCurrentTime() + ", num frames: " + monitor.getNumFrames());
-        System.out.println("ONNX max time: " + secondsBetweenMetrics + ", max frames: " + framesBetweenMetrics);
         if (monitor.getCurrentTime() > secondsBetweenMetrics || monitor.getNumFrames() >= framesBetweenMetrics) {
             HardwareMonitor.HardwareMetrics hardwareMetrics = monitor.finishExecuteAndMonitor();
             return new MTLBoxStruct(output, bitmap, hardwareMetrics.executionTimeMs, hardwareMetrics);
