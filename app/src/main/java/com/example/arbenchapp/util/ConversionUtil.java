@@ -92,6 +92,24 @@ public final class ConversionUtil {
         }
     }
 
+    public static Bitmap FloatArrayToImage(float[] data, int height, int width, ConversionMethod method) {
+        switch (method) {
+            case ARGMAX_COLOR:
+                try {
+                    return ImageConversionUtil.ColorConvert(data, height, width);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(
+                            "TIMEEC ERROR: " + e
+                    );
+                }
+            case BW:
+                return ImageConversionUtil.BWConvert(data, height, width);
+            default:
+                throw new IllegalArgumentException(
+                        "ERROR: Conversion method " + method.toString() + " provided, not valid for float array input.");
+        }
+    }
+
     public static Bitmap FloatArrayToImage(float[][][][] data, ConversionMethod method) {
         switch (method) {
             case ARGMAX_COLOR:

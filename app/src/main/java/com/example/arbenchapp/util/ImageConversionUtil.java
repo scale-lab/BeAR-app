@@ -193,12 +193,6 @@ public final class ImageConversionUtil {
         for (float[][][] layer : data) {
             float[] flatData = flatten(layer, 1, height, width);
             convertToGrayscale(flatData, height, width, bm);
-//            for (int h = 0; h < height; h++) {
-//                for (int w = 0; w < width; w++) {
-//                    int g = (int) (layer[0][h][w] * 255.0);
-//                    bm.setPixel(w, h, Color.argb(255, g, g, g));
-//                }
-//            }
         }
         double endTime = System.nanoTime();
         System.out.println("TIMEEC bw convert (ms): " + ((endTime - startTime) / 1_000_000));
@@ -215,6 +209,25 @@ public final class ImageConversionUtil {
         Bitmap bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
         float[] flatData = flatten(data, layers, channels, height, width);
         convertToBitmapNative(flatData, layers, channels, height, width, bm, colors);
+        double endTime = System.nanoTime();
+        System.out.println("TIMEEC color convert (ms): " + ((endTime - startTime) / 1_000_000));
+        return bm;
+    }
+
+    public static Bitmap BWConvert(float[] data, int height, int width) {
+        double startTime = System.nanoTime();
+        Bitmap bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        convertToGrayscale(data, height, width, bm);
+        double endTime = System.nanoTime();
+        System.out.println("TIMEEC bw convert (ms): " + ((endTime - startTime) / 1_000_000));
+        return bm;
+    }
+
+    public static Bitmap ColorConvert(float[] data, int height, int width) throws InterruptedException {
+        // only works on last layer rn
+        double startTime = System.nanoTime();
+        Bitmap bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        convertToBitmapNative(data, 1, 3, height, width, bm, colors);
         double endTime = System.nanoTime();
         System.out.println("TIMEEC color convert (ms): " + ((endTime - startTime) / 1_000_000));
         return bm;

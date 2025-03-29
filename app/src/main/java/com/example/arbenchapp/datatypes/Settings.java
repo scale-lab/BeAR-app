@@ -15,6 +15,7 @@ public class Settings {
     public Settings(int imgHeight, int imgWidth) {
         this.imgHeight = imgHeight;
         this.imgWidth = imgWidth;
+
         this.dimsInit = true;
     }
 

@@ -12,6 +12,7 @@ import android.util.Log;
 
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.util.ConversionUtil;
+import com.example.arbenchapp.util.FileUtil;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
 
@@ -22,6 +23,7 @@ import org.pytorch.IValue;
 import org.pytorch.Tensor;
 
 import java.lang.reflect.Type;
+import java.nio.FloatBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -244,6 +246,18 @@ public class HardwareMonitor {
         private double avgTime;
         private double avgTimePP;
 
+        static {
+            System.loadLibrary("onnxruntime");
+            System.loadLibrary("native-lib");
+        }
+
+        private static native Map<String, float[]> runInferenceNative(
+                String modelPath, Map<String,
+                float[]> inputMap,
+                int height,
+                int width
+        );
+
         public PyTorchModelMonitor(Module model, Settings settings, Context context) {
             this.model = model;
             this.settings = settings;
@@ -289,6 +303,25 @@ public class HardwareMonitor {
             startCpuUsage = startMetrics.cpuUsagePercent;
         }
 
+        private static Map<String, float[]> convertOnnxTensorMap(Map<String, ? extends OnnxTensorLike> tensorMap) {
+            Map<String, float[]> floatMap = new HashMap<>();
+            for (Map.Entry<String, ? extends OnnxTensorLike> entry : tensorMap.entrySet()) {
+                String key = entry.getKey();
+                OnnxTensorLike tensorLike = entry.getValue();
+
+                if (tensorLike instanceof OnnxTensor) {
+                    OnnxTensor tensor = (OnnxTensor) tensorLike;
+                    FloatBuffer buffer = tensor.getFloatBuffer();
+                    float[] data = new float[buffer.remaining()];
+                    buffer.get(data);
+                    floatMap.put(key, data);
+                } else {
+                    throw new IllegalArgumentException("Unsupported tensor type: " + tensorLike.getClass().getSimpleName());
+                }
+            }
+            return floatMap;
+        }
+
         public Map<String, Bitmap> runInference(Bitmap input) throws OrtException {
             if (!started) {
                 System.out.println("CANNOT RUN INFERENCE WITHOUT STARTING METRICS");
@@ -305,27 +338,36 @@ public class HardwareMonitor {
                     System.err.println("ERROR: Session should not be null.");
                     return null;
                 }
+                // TODO: This is inefficient conversion
                 OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
-                Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", inp);
+                Map<String, ? extends OnnxTensorLike> inputsOnnx = Map.of("input", inp);
+                Map<String, float[]> inputs = convertOnnxTensorMap(inputsOnnx);
+                String assetModelPath = prefs.getString("model_file_selection", "");
+                String modelPath = FileUtil.copyAssetToFile(assetModelPath, hardwareMonitor.context);
+                if (modelPath == null) {
+                    System.err.println("ERROR: Model path should not be null.");
+                    return null;
+                }
                 startInfTime = System.nanoTime();
-                OrtSession.Result outputs = session.run(inputs);
+                Map<String, float[]> outputs = runInferenceNative(
+                        modelPath, inputs, settings.getImgHeight(), settings.getImgWidth()
+                );
+                // OrtSession.Result outputs = session.run(inputs);
                 endInfTime = System.nanoTime();
-                for (Map.Entry<String, OnnxValue> entry : outputs) {
+                System.out.println("JNICOOL: NEW INFERENCE");
+                for (Map.Entry<String, float[]> entry : outputs.entrySet()) {
+                    System.out.println("JNICOOL: " + entry);
                     String key = entry.getKey();
-                    OnnxValue value = entry.getValue();
-                    if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
-                        float[][][][] ft = (float[][][][]) value.getValue();
-                        Bitmap bm = ConversionUtil.FloatArrayToImage(
-                                ft,
-                                ConversionUtil.stringToConversionMethod(
-                                        Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
-                                )
-                        );
-                        output.put(key, bm);
-                    } else {
-                        System.err.println("ONNX ERROR: Value isn't in tensor.");
-                        return null;
-                    }
+                    float[] value = entry.getValue();
+                    Bitmap bm = ConversionUtil.FloatArrayToImage(
+                            value,
+                            settings.getImgHeight(),
+                            settings.getImgWidth(),
+                            ConversionUtil.stringToConversionMethod(
+                                    Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
+                            )
+                    );
+                    output.put(key, bm);
                 }
                 System.out.println("ONNX: " + output.toString());
             } else {
