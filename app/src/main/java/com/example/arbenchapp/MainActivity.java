@@ -2,10 +2,15 @@ package com.example.arbenchapp;
 
 import static java.lang.Math.abs;
 
+import android.app.ActivityManager;
+import android.app.GameManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Debug;
 import android.provider.MediaStore;
 import android.util.Log;
 import android.view.MenuItem;
@@ -17,6 +22,7 @@ import com.example.arbenchapp.datatypes.ImagePageAdapter;
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.Resolution;
 import com.example.arbenchapp.datatypes.Settings;
+import com.example.arbenchapp.improvemodels.BitmapPool;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.example.arbenchapp.util.CameraUtil;
 import com.example.arbenchapp.util.ConversionUtil;
@@ -47,6 +53,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
+
+import ai.onnxruntime.OrtException;
 
 public class MainActivity extends AppCompatActivity implements CameraUtil.CameraCallback {
     private AppBarConfiguration mAppBarConfiguration;
@@ -56,11 +65,27 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     private List<ImagePage> imagePageList;
     private MTLBox mtlBox;
     private Resolution res;
-    private final ExecutorService inferenceExecutor = Executors.newFixedThreadPool(1);
+    private BitmapPool bitmapPool;
+    private Bitmap currentDisplayBitmap;
+    private Bitmap latestCameraFrame;
+    private Matrix rotationMatrix;
+    private final ExecutorService inferenceExecutor = Executors.newSingleThreadExecutor(
+        new ThreadFactory() {
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "InferenceThread");
+                t.setPriority(Thread.MAX_PRIORITY);
+                return t;
+            }
+        }
+    );
     private final Object processingLock = new Object();
+    private final Object displayLock = new Object();
     private boolean isProcessingInference = false;
     private SharedPreferences prefs;
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
+    private long totalNative = 0;
+    private long gap;
 
     // Registers a photo picker activity launcher in single-select mode.
     ActivityResultLauncher<PickVisualMediaRequest> pickMedia =
@@ -99,10 +124,21 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         super.onCreate(savedInstanceState);
         MainActivity context = this;
 
+        // Only call this for Android 12 and higher devices
+        if ( Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ) {
+            // Get GameManager from SystemService
+            GameManager gameManager = this.getSystemService(GameManager.class);
+
+            // Returns the selected GameMode
+            int gameMode = gameManager.getGameMode();
+            System.out.println("GAMEMODE_9832: " + gameMode);
+        }
+
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        cameraUtil = new CameraUtil(context, context);
+        gap = 20; // 20 ms
+        cameraUtil = new CameraUtil(context, context, gap);
 
         ViewPager2 viewPager2 = findViewById(R.id.viewPager);
         imagePageList = new ArrayList<>();
@@ -114,12 +150,23 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         Settings s = new Settings(res.getHeight(), res.getWidth());
         mtlBox = new MTLBox(s, this);
 
+        // TODO: Should be related to number of inputs and outputs
+        bitmapPool = new BitmapPool(2, res.getWidth(), res.getHeight(), Bitmap.Config.ARGB_8888);
+
+        rotationMatrix = new Matrix();
+        rotationMatrix.postRotate(90); // TODO: dawg
+
         listener = new SharedPreferences.OnSharedPreferenceChangeListener() {
             @Override
             public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, @Nullable String s) {
                 System.out.println("ONNX preferences changed");
                 res = new Resolution(sharedPreferences.getString("resolution", "224,224"));
                 Settings new_s = new Settings(res.getHeight(), res.getWidth());
+                try {
+                    mtlBox.shutdown();
+                } catch (OrtException e) {
+                    throw new RuntimeException(e);
+                }
                 mtlBox = new MTLBox(new_s, context);
             }
         };
@@ -182,82 +229,144 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
 
     @Override
     public void onFrameCaptured(Bitmap bitmap) {
-        runOnUiThread(() -> {
-            ImagePage ip = new ImagePage(bitmap, "Input Image");
-            if (imagePageList.isEmpty()) {
-                imagePageList.add(ip);
-                adapter.notifyItemChanged(0);
-            } else {
-                imagePageList.set(0, ip);
-                adapter.notifyItemChanged(0);
+        synchronized (displayLock) {
+            if (latestCameraFrame != null && !latestCameraFrame.isRecycled()) {
+                latestCameraFrame.recycle();
             }
-        });
+            latestCameraFrame = bitmap.copy(bitmap.getConfig(), true);
+        }
 
-        if (prefs.getBoolean("run_inference", true)) {
-            synchronized (processingLock) {
-                if (isProcessingInference) {
-                    return;
-                }
-                isProcessingInference = true;
-            }
-            inferenceExecutor.execute(() -> {
-                try {
-                    MTLBoxStruct processed = mtlBox.run(bitmap);
-                    Map<String, Bitmap> bms = processed.getBitmaps();
-                    final List<ImagePage> newPages = new ArrayList<>();
-                    boolean write = true;
-                    for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
-                        newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
-                        write = false;
+        updateDisplayBitmap();
+        try {
+            if (prefs.getBoolean("run_inference", true)) {
+                processFrameForInference();
+            } else {
+                runOnUiThread(() -> {
+                    ImagePage ip = new ImagePage(bitmap, "Test Second Image");
+                    if (imagePageList.size() < 2) {
+                        imagePageList.add(ip);
+                        adapter.notifyItemChanged(imagePageList.size() - 1);
+                    } else {
+                        imagePageList.set(1, ip);
+                        adapter.notifyItemChanged(1);
                     }
-                    runOnUiThread(() -> {
-                        System.out.println("ONNX adding pages");
-                        for (int i = 0; i < newPages.size(); i++) {
-                            if (imagePageList.size() < i + 2) {
-                                imagePageList.add(newPages.get(i));
-                            } else {
-                                if (processed.hasOldMetrics()) {
-                                    System.out.println("ONNX no new metrics");
-                                    ImagePage hasPrevMetrics = new ImagePage(newPages.get(i).getImage(), imagePageList.get(i + 1).getCaption());
-                                    imagePageList.set(i + 1, hasPrevMetrics);
-                                } else {
-                                    imagePageList.set(i + 1, newPages.get(i));
-                                }
-                            }
-                        }
-                        adapter.notifyDataSetChanged();
-                        synchronized (processingLock) {
-                            isProcessingInference = false;
-                        }
-                    });
-                } catch (Exception e) {
-                    Log.e("MainActivity", "ONNX Error processing frame", e);
-                    runOnUiThread(() -> {
-                        ImagePage ip = new ImagePage(bitmap, "Error processing image: " + e.getMessage());
-                        if (imagePageList.size() < 2) {
-                            imagePageList.add(ip);
-                        } else {
-                            imagePageList.set(1, ip);
-                        }
-                        adapter.notifyDataSetChanged();
-                        synchronized (processingLock) {
-                            isProcessingInference = false;
-                        }
-                    });
-                }
-            });
-        } else {
+                });
+            }
+        } catch (Exception e) {
+            Log.e("MainActivity", "Error processing frame", e);
+        }
+
+    }
+
+    private void updateDisplayBitmap() {
+        synchronized (displayLock) {
+            if (latestCameraFrame == null || latestCameraFrame.isRecycled()) return;
+
+            Bitmap displayBitmap = latestCameraFrame.copy(latestCameraFrame.getConfig(), true);
             runOnUiThread(() -> {
-                ImagePage ip = new ImagePage(bitmap, "Test Second Image");
-                if (imagePageList.size() < 2) {
+                currentDisplayBitmap = displayBitmap;
+                if (imagePageList.isEmpty()) {
+                    ImagePage ip = new ImagePage(currentDisplayBitmap, "Input Image");
                     imagePageList.add(ip);
-                    adapter.notifyItemChanged(imagePageList.size() - 1);
+                    adapter.notifyItemInserted(0);
                 } else {
-                    imagePageList.set(1, ip);
-                    adapter.notifyItemChanged(1);
+                    imagePageList.get(0).setImage(latestCameraFrame);
+                    // imagePageList.set(0, ip);
+                    // adapter.notifyItemChanged(0);
                 }
             });
         }
+    }
+
+    private void processFrameForInference() {
+        ActivityManager.MemoryInfo memInfo = new ActivityManager.MemoryInfo();
+        ActivityManager activityManager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        activityManager.getMemoryInfo(memInfo);
+        Log.d("MEMORY", "Available: " + memInfo.availMem + " Threshold: " + memInfo.threshold);
+        Debug.MemoryInfo memInfoD = new Debug.MemoryInfo();
+        Debug.getMemoryInfo(memInfoD);
+
+        synchronized (processingLock) {
+            if (isProcessingInference) {
+                return;
+            }
+            isProcessingInference = true;
+        }
+
+        Bitmap inferenceBitmap;
+        synchronized (displayLock) {
+            if (latestCameraFrame == null || latestCameraFrame.isRecycled()) {
+                synchronized (processingLock) {
+                    isProcessingInference = false;
+                }
+                return;
+            }
+            inferenceBitmap = latestCameraFrame.copy(latestCameraFrame.getConfig(), true);
+        }
+
+        inferenceExecutor.execute(() -> {
+            try {
+                long nativeMemBefore = Debug.getNativeHeapAllocatedSize();
+                MTLBoxStruct processed = mtlBox.run(inferenceBitmap);
+                long nativeMemAfter = Debug.getNativeHeapAllocatedSize();
+                long allocated = nativeMemAfter - nativeMemBefore;
+                totalNative += allocated;
+                Log.d("NATIVE_MEM", "Allocated: " + allocated + " bytes");
+                Log.d("NATIVE_MEM", "Total Allocated: " + totalNative + " bytes");
+                handleInferenceResults(processed);
+            } catch (Exception e) {
+                Log.e("MainActivity", "ONNX Error processing frame", e);
+                runOnUiThread(() -> {
+                    ImagePage ip = new ImagePage(inferenceBitmap, "Error processing image: " + e.getMessage());
+                    if (imagePageList.size() < 2) {
+                        imagePageList.add(ip);
+                    } else {
+                        imagePageList.set(1, ip);
+                    }
+                    adapter.notifyDataSetChanged();
+                    bitmapPool.release(inferenceBitmap);
+                });
+            } finally {
+                inferenceBitmap.recycle();
+                synchronized (processingLock) {
+                    isProcessingInference = false;
+                }
+                processFrameForInference();
+            }
+        });
+    }
+
+    private void handleInferenceResults(MTLBoxStruct processed) {
+        Map<String, Bitmap> bms = processed.getBitmaps();
+        final List<ImagePage> newPages = new ArrayList<>();
+        cameraUtil.updateFramerate((long) Math.ceil(processed.getMetrics().fps));
+
+        boolean write = true;
+        for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
+            // TODO: Better lifecycle management for output bitmaps
+            newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
+            write = false;
+        }
+
+        runOnUiThread(() -> {
+            System.out.println("ONNX adding pages");
+            for (int i = 0; i < newPages.size(); i++) {
+                int position = i + 1;
+                if (position < imagePageList.size()) {
+                    if (processed.hasOldMetrics()) {
+                        System.out.println("ONNX no new metrics");
+                        ImagePage hasPrevMetrics =
+                                new ImagePage(newPages.get(i).getImage(), imagePageList.get(position).getCaption());
+                        imagePageList.set(position, hasPrevMetrics);
+                    } else {
+                        imagePageList.set(position, newPages.get(i));
+                    }
+                } else {
+                    imagePageList.add(newPages.get(i));
+                }
+            }
+            adapter.notifyDataSetChanged();
+        });
     }
 
     @Override
@@ -266,8 +375,11 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         if (cameraUtil != null) {
             cameraUtil.shutdown();
         }
+        if (bitmapPool != null) {
+            bitmapPool.clear();
+        }
         if (inferenceExecutor != null && !inferenceExecutor.isShutdown()) {
-            inferenceExecutor.shutdown();
+            inferenceExecutor.shutdownNow();
         }
         if (prefs != null && listener != null) {
             prefs.unregisterOnSharedPreferenceChangeListener(listener);
@@ -275,7 +387,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     }
 
     public String createDisplayString(String output, MTLBoxStruct processed, boolean write) {
-        if (processed.hasOldMetrics()) {
+        if (processed.hasOldMetrics() && prefs.getBoolean("use_camera", false)) {
             return "Processing...";
         }
         Double tm = processed.getTime();
@@ -311,6 +423,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                 "Per Frame Runtime: " + ConversionUtil.round(metrics.executionWithProcessing, decimalPoints) + " ms" : "";
         String fps = prefs.getBoolean("fps", true) ?
                 "FPS: " + ConversionUtil.round(metrics.fps, decimalPoints) : "";
+
         String cpuUsagePercentDisplay = prefs.getBoolean("cpu_usage", true) ?
                 "CPU Usage Percent: " + ConversionUtil.round(metrics.cpuUsagePercent, decimalPoints) + "%" : "";
         String cpuUsageDeltaDisplay = prefs.getBoolean("cpu_usage_delta", true) ?

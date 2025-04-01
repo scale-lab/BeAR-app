@@ -25,8 +25,6 @@ import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxTensorLike;
@@ -34,6 +32,7 @@ import ai.onnxruntime.OnnxValue;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
+import leakcanary.AppWatcher;
 
 public class HardwareMonitor {
     private static final String TAG = "HardwareMonitor";
@@ -228,7 +227,7 @@ public class HardwareMonitor {
 
     public static class PyTorchModelMonitor {
         private final Module model;
-        private final OrtSession session;
+        private OrtSession session;
         private final OrtEnvironment env;
         private final Settings settings;
         private final HardwareMonitor hardwareMonitor;
@@ -265,6 +264,7 @@ public class HardwareMonitor {
             this.model = null;
             this.settings = settings;
             this.session = model;
+            AppWatcher.INSTANCE.getObjectWatcher().watch(session, "ONNX_SESSION_LEAK_CHECK");
             this.env = env;
             this.hardwareMonitor = new HardwareMonitor(context);
             outputDict = true;
@@ -278,6 +278,15 @@ public class HardwareMonitor {
             started = false;
         }
 
+        public synchronized void updateSession(OrtSession session) throws OrtException {
+//            if (this.session != null) {
+//                this.session.close();
+//                this.session = null;
+//                System.gc();
+//            }
+            this.session = session;
+        }
+
         public void startExecuteAndMonitor() {
             started = true;
             startMetrics = hardwareMonitor.getBaseMetrics();
@@ -289,7 +298,7 @@ public class HardwareMonitor {
             startCpuUsage = startMetrics.cpuUsagePercent;
         }
 
-        public Map<String, Bitmap> runInference(Bitmap input) throws OrtException {
+        public synchronized Map<String, Bitmap> runInference(Bitmap input) throws OrtException {
             if (!started) {
                 System.out.println("CANNOT RUN INFERENCE WITHOUT STARTING METRICS");
                 return null;
@@ -299,43 +308,48 @@ public class HardwareMonitor {
             double startPPTime = System.nanoTime();
             numFrames++;
             // Execute model
+            OnnxTensor inp = null;
+            OrtSession.Result outputs = null;
             Map<String, Bitmap> output = new HashMap<>();
             if (outputDict) {
                 if (session == null) {
                     System.err.println("ERROR: Session should not be null.");
                     return null;
                 }
-                OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
-                Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", inp);
-                startInfTime = System.nanoTime();
-                OrtSession.Result outputs = session.run(inputs);
-                endInfTime = System.nanoTime();
-                for (Map.Entry<String, OnnxValue> entry : outputs) {
-                    String key = entry.getKey();
-                    OnnxValue value = entry.getValue();
-                    if (value.getType() == OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
-                        float[][][][] ft = (float[][][][]) value.getValue();
-                        Bitmap bm = ConversionUtil.FloatArrayToImage(
-                                ft,
-                                ConversionUtil.stringToConversionMethod(
-                                        Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
-                                )
-                        );
-                        output.put(key, bm);
-                    } else {
-                        System.err.println("ONNX ERROR: Value isn't in tensor.");
-                        return null;
+                try {
+                    inp = ConversionUtil.bitmapToTensor(input, env);
+                    Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", inp);
+                    startInfTime = System.nanoTime();
+                    outputs = session.run(inputs);
+                    endInfTime = System.nanoTime();
+                    for (Map.Entry<String, OnnxValue> entry : outputs) {
+                        OnnxValue value = entry.getValue();
+                        try {
+                            if (value instanceof OnnxTensor) {
+                                float[][][][] ft = (float[][][][]) value.getValue();
+                                Bitmap bm = ConversionUtil.FloatArrayToImage(
+                                        ft,
+                                        ConversionUtil.stringToConversionMethod(
+                                                Objects.requireNonNull(outputMappings.getOrDefault(entry.getKey(), ""))
+                                        )
+                                );
+                                output.put(entry.getKey(), bm);
+                            }
+                        } finally {
+                            safeClose(value);
+                        }
                     }
+                } finally {
+                    safeClose(inp);
                 }
-                System.out.println("ONNX: " + output.toString());
             } else {
                 if (model == null) {
                     System.err.println("ERROR: Model should not be null.");
                     return null;
                 }
-                Tensor inp = ConversionUtil.bitmapToTensor(input);
+                Tensor inpt = ConversionUtil.bitmapToTensor(input);
                 startInfTime = System.nanoTime();
-                Tensor out_val = model.forward(IValue.from(inp)).toTensor();
+                Tensor out_val = model.forward(IValue.from(inpt)).toTensor();
                 endInfTime = System.nanoTime();
                 String key = "output";
                 output.put(key, ConversionUtil.TensorToImage(
@@ -347,6 +361,7 @@ public class HardwareMonitor {
                         input.getHeight())
                 );
             }
+
             long endPPTime = System.nanoTime();
             if (numFrames == 1) {
                 avgTime = endInfTime - startInfTime;
@@ -388,6 +403,16 @@ public class HardwareMonitor {
                     startBattery,
                     endBatteryStats
             );
+        }
+
+        private void safeClose(OnnxValue resource) {
+            if (resource != null) {
+                try {
+                    resource.close();
+                } catch (Exception e) {
+                    Log.w("RESOURCE", "Error closing resource", e);
+                }
+            }
         }
 
         public int getNumFrames() { return numFrames; }

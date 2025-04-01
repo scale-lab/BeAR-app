@@ -3,7 +3,9 @@ package com.example.arbenchapp.util;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.ImageFormat;
+import android.graphics.Matrix;
 import android.graphics.YuvImage;
 import android.media.Image;
 import android.util.Log;
@@ -18,12 +20,14 @@ import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
 import com.example.arbenchapp.datatypes.Resolution;
+import com.example.arbenchapp.improvemodels.BitmapPool;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class CameraUtil {
     private static final String TAG = "CameraXUtil";
@@ -32,14 +36,24 @@ public class CameraUtil {
     private ImageAnalysis imageAnalysis;
     private final Context context;
     private final CameraCallback callback;
+    private long lastFrameTime;
+    private final AtomicLong frameGrabGap;
 
     public interface CameraCallback {
         void onFrameCaptured(Bitmap bitmap);
     }
 
-    public CameraUtil(Context context, CameraCallback callback) {
+    public CameraUtil(Context context, CameraCallback callback, long gap) {
         this.context = context;
         this.callback = callback;
+        this.lastFrameTime = 0;
+        this.frameGrabGap = new AtomicLong(gap);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        Resolution res = new Resolution(prefs.getString("resolution", "224,224"));
+    }
+
+    public void updateFramerate(long fps) {
+        this.frameGrabGap.set(fps);
     }
 
     public void startCamera() {
@@ -63,16 +77,16 @@ public class CameraUtil {
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build();
 
-        final boolean[] processing = { false };
-
         imageAnalysis.setAnalyzer(cameraExecutor, image -> {
-            if (!processing[0]) {
-                processing[0] = true;
+            long currentTime = System.currentTimeMillis();
+            long frameRate = frameGrabGap.get();
+            if (currentTime - lastFrameTime >= frameRate) {
+                lastFrameTime = currentTime;
+
                 Bitmap bitmap = imageToBitmap(image);
                 if (bitmap != null) {
                     callback.onFrameCaptured(bitmap);
                 }
-                processing[0] = false;
             }
             image.close();
         });
@@ -88,44 +102,50 @@ public class CameraUtil {
     @OptIn(markerClass = ExperimentalGetImage.class)
     private Bitmap imageToBitmap(ImageProxy image) {
         Image img = image.getImage();
-        if (img == null) return null;
-
+        if (img == null) {
+            image.close();
+            return null;
+        }
         Bitmap bitmap;
 
-        if (img.getFormat() == ImageFormat.YUV_420_888) {
-            YuvImage yuvImage = getYuvImage(image, img);
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            yuvImage.compressToJpeg(
-                    new android.graphics.Rect(0, 0, image.getWidth(), image.getHeight()), 100, out);
-            byte[] imageBytes = out.toByteArray();
-            bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
-        } else {
-            ByteBuffer buffer = img.getPlanes()[0].getBuffer();
-            byte[] bytes = new byte[buffer.remaining()];
-            buffer.get(bytes);
-
-            bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
-        }
-
-        int rotation = image.getImageInfo().getRotationDegrees();
-
-        if (rotation != 0) {
-            int width = bitmap.getWidth();
-            int height = bitmap.getHeight();
-
-            android.graphics.Matrix matrix = new android.graphics.Matrix();
-            matrix.postRotate(rotation);
-
-            Bitmap rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true);
-
-            if (bitmap != rotatedBitmap) {
-                bitmap.recycle();
+        try {
+            if (img.getFormat() == ImageFormat.YUV_420_888) {
+                YuvImage yuvImage = getYuvImage(image, img);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                yuvImage.compressToJpeg(
+                        new android.graphics.Rect(0, 0, image.getWidth(), image.getHeight()), 100, out);
+                byte[] imageBytes = out.toByteArray();
+                bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.length);
+            } else {
+                ByteBuffer buffer = img.getPlanes()[0].getBuffer();
+                byte[] bytes = new byte[buffer.remaining()];
+                buffer.get(bytes);
+                bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
             }
 
-            bitmap = rotatedBitmap;
+            if (bitmap != null) {
+                Bitmap originalBitmap = bitmap;
+                bitmap = handleRotation(bitmap, image.getImageInfo().getRotationDegrees());
+                if (bitmap != originalBitmap) {
+                    originalBitmap.recycle();
+                }
+            }
+            return bitmap;
+        } catch (Exception e) {
+            Log.e(TAG, "Bitmap conversion failed: " + e);
+            return null;
+        } finally {
+            image.close();
         }
+    }
 
-        return bitmap;
+    private Bitmap handleRotation(Bitmap original, int rotation) {
+        if (rotation == 0 || original == null) return original;
+
+        Matrix matrix = new Matrix();
+        matrix.postRotate(rotation);
+        return Bitmap.createBitmap(original, 0, 0,
+                original.getWidth(), original.getHeight(), matrix, true);
     }
 
     private static @NonNull YuvImage getYuvImage(ImageProxy image, Image img) {
@@ -147,6 +167,16 @@ public class CameraUtil {
     }
 
     public void shutdown() {
+        try {
+            if (cameraProvider != null) {
+                cameraProvider.unbindAll();
+            }
+            if (imageAnalysis != null) {
+                imageAnalysis.clearAnalyzer();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Shutdown error", e);
+        }
         cameraExecutor.shutdown();
     }
 }

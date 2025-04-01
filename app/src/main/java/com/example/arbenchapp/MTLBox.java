@@ -1,8 +1,12 @@
 package com.example.arbenchapp;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
+import android.os.BatteryManager;
+import android.util.Log;
 
 import androidx.preference.PreferenceManager;
 
@@ -17,25 +21,36 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 
 import ai.onnxruntime.*;
+import ai.onnxruntime.providers.NNAPIFlags;
 
 public class MTLBox {
 
     private final Settings settings;
     private final File file;
+    private final SharedPreferences prefs;
     private HardwareMonitor.PyTorchModelMonitor monitor;
     private HardwareMonitor.HardwareMetrics metrics;
     private final ModelType modelType;
     private final MTLBoxStruct default_mbs;
     private final int secondsBetweenMetrics;
     private final int framesBetweenMetrics;
+    private Context context;
+    private boolean nnapi_compat;
+    private boolean nnapi;
+    private OrtSession nn_sesh;
+    private OrtSession cpu_sesh;
 
     public MTLBox(Settings settings, Context context) {
         this.settings = settings;
-        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        this.context = context;
+        this.nnapi = true;
+        this.nnapi_compat = true;
+        prefs = PreferenceManager.getDefaultSharedPreferences(context);
         String modelPath = prefs.getString("model_file_selection", "");
         secondsBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_time", "5"));
         framesBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_frames", "1"));
@@ -53,8 +68,12 @@ public class MTLBox {
         } else if (modelPath.endsWith(".onnx")) {
             this.modelType = ModelType.ONNX;
             OrtEnvironment env = OrtEnvironment.getEnvironment();
+            EnumSet<OrtProvider> providers = OrtEnvironment.getAvailableProviders();
+            for (OrtProvider provider : providers) {
+                Log.d("ORT_1298", "Available provider: " + provider); // Should show "NNAPI", "OPENCL", etc.
+            }
             try {
-                OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
+                OrtSession session = createNNSession(env);
                 this.monitor = new HardwareMonitor.PyTorchModelMonitor(session, env, viewSettings(), context);
                 this.metrics = new HardwareMonitor.HardwareMetrics(context);
             } catch (OrtException e) {
@@ -137,6 +156,14 @@ public class MTLBox {
                 System.err.println("ONNX: IMAGE DIMENSIONS NOT SPECIFIED IN SETTINGS!");
                 return default_mbs;
             }
+            Intent batteryIntent = context.registerReceiver(null,
+                    new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            assert batteryIntent != null;
+            double temp = batteryIntent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) / 10.0;
+            double tempThresh = 35.0;
+            if ((nnapi && temp > tempThresh) || (!nnapi && temp < tempThresh)) {
+                updateSession();
+            }
             if (bitmap.getWidth() != viewSettings().getImgWidth() ||
                 bitmap.getHeight() != viewSettings().getImgHeight()) {
                 Bitmap scaled = Bitmap.createScaledBitmap(
@@ -153,11 +180,63 @@ public class MTLBox {
             System.err.println("ONNX ORTEXCEPTION: " + e.getMessage());
             return default_mbs;
         }
-        if (monitor.getCurrentTime() > secondsBetweenMetrics || monitor.getNumFrames() >= framesBetweenMetrics) {
+        if (monitor.getCurrentTime() > secondsBetweenMetrics ||
+                monitor.getNumFrames() >= framesBetweenMetrics ||
+                !prefs.getBoolean("use_camera", false)) {
             HardwareMonitor.HardwareMetrics hardwareMetrics = monitor.finishExecuteAndMonitor();
             return new MTLBoxStruct(output, bitmap, hardwareMetrics.executionTimeMs, hardwareMetrics);
         }
         return new MTLBoxStruct(output, bitmap, (System.nanoTime() - startTime) / 1_000_000);
+    }
+
+    private OrtSession createNNSession(OrtEnvironment env) throws OrtException {
+        if (nn_sesh != null) {
+            return nn_sesh;
+        }
+        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+        EnumSet<NNAPIFlags> nnapiFlags = EnumSet.of(
+                NNAPIFlags.CPU_DISABLED,
+                NNAPIFlags.USE_FP16
+        );
+        options.addNnapi(nnapiFlags);
+        try {
+            nn_sesh = env.createSession(file.getPath(), options);
+            return nn_sesh;
+        } catch (OrtException e) {
+            this.nnapi_compat = false;
+            return createSession(env);
+        }
+    }
+
+    private OrtSession createSession(OrtEnvironment env) throws OrtException {
+        if (cpu_sesh != null) {
+            return cpu_sesh;
+        }
+        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
+        options.setIntraOpNumThreads(1);
+        options.setInterOpNumThreads(1);
+        cpu_sesh = env.createSession(file.getPath(), options);
+        return cpu_sesh;
+    }
+
+    private void updateSession() throws OrtException {
+        OrtEnvironment env = OrtEnvironment.getEnvironment();
+        OrtSession session;
+        if (!this.nnapi && this.nnapi_compat) {
+            // switch to gpu and npu
+            session = createNNSession(env);
+        } else {
+            // switch to cpu
+            session = createSession(env);
+        }
+        this.nnapi = !this.nnapi;
+        this.monitor.updateSession(session);
+    }
+
+    public void shutdown() throws OrtException {
+        nn_sesh.close();
+        cpu_sesh.close();
     }
 
 }
