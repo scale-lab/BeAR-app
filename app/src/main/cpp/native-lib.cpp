@@ -71,6 +71,98 @@ Java_com_example_arbenchapp_util_ImageConversionUtil_convertToBitmapNative(
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_example_arbenchapp_util_ImageConversionUtil_convertWithGradient(
+        JNIEnv *env,
+        jclass clazz,
+        jfloatArray data,
+        jint layers,
+        jint channels,
+        jint height,
+        jint width,
+        jobject bitmap) { // Add colors as a 2D array
+    // Lock the Bitmap to get a pointer to its pixel data
+    AndroidBitmapInfo bitmapInfo;
+    void *pixels;
+    AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
+    AndroidBitmap_lockPixels(env, bitmap, &pixels);
+
+    // Get the float array data
+    jfloat *dataArray = env->GetFloatArrayElements(data, nullptr);
+
+    // Iterate over height and width
+    for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+            int chosenChannel = 0;
+            float maxChannel = dataArray[0 * height * width + h * width + w];
+
+            // Find the channel with the maximum value
+            for (int c = 1; c < channels; c++) {
+                float currentChannel = dataArray[c * height * width + h * width + w];
+                if (currentChannel > maxChannel) {
+                    chosenChannel = c;
+                    maxChannel = currentChannel;
+                }
+            }
+
+            // Get the color for the chosen channel
+            float ratio = (float)chosenChannel / (float)channels;
+            int red = ratio < 0.5 ? 255 - (int)(2.0 * (0.5 - ratio) * 255.0) : 0;
+            int green = ratio < 0.5 ? (int)(2.0 * ratio * 255.0) : (int)(((-2.0 * ratio) + 2) * 255.0);
+            int blue = ratio < 0.5 ? 0 : (int)(2.0 * (ratio - 0.5) * 255.0);
+
+            // Set the pixel in the Bitmap (ARGB format)
+            uint32_t *pixel = (uint32_t *) pixels + h * width + w;
+            *pixel = 0xFF000000 | (red << 16) | (green << 8) | blue;
+        }
+    }
+
+    // Unlock the Bitmap and release the float array
+    AndroidBitmap_unlockPixels(env, bitmap);
+    env->ReleaseFloatArrayElements(data, dataArray, 0);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_arbenchapp_util_ImageConversionUtil_convertWithGradientBW(
+        JNIEnv *env,
+        jclass clazz,
+        jfloatArray data,
+        jint height,
+        jint width,
+        jobject bitmap) { // Add colors as a 2D array
+    // Lock the Bitmap to get a pointer to its pixel data
+    AndroidBitmapInfo bitmapInfo;
+    void *pixels;
+    AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
+    AndroidBitmap_lockPixels(env, bitmap, &pixels);
+
+    // Get the float array data
+    jfloat *dataArray = env->GetFloatArrayElements(data, nullptr);
+
+    // Iterate over height and width
+    for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+            int index = 0 * height * width + h * width + w;
+            float value = dataArray[index];
+
+            // Get the color for the chosen channel
+            int red = value < 0.5 ? 255 - (int)(2.0 * (0.5 - value) * 255.0) : 0;
+            int green = value < 0.5 ? (int)(2.0 * value * 255.0) : (int)(((-2.0 * value) + 2) * 255.0);
+            int blue = value < 0.5 ? 0 : (int)(2.0 * (value - 0.5) * 255.0);
+
+            // Set the pixel in the Bitmap (ARGB format)
+            uint32_t *pixel = (uint32_t *) pixels + h * width + w;
+            *pixel = 0xFF000000 | (red << 16) | (green << 8) | blue;
+        }
+    }
+
+    // Unlock the Bitmap and release the float array
+    AndroidBitmap_unlockPixels(env, bitmap);
+    env->ReleaseFloatArrayElements(data, dataArray, 0);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_example_arbenchapp_util_ImageConversionUtil_convertToGrayscale(
         JNIEnv *env,
         jclass clazz,

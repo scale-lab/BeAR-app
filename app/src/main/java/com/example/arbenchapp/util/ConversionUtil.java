@@ -104,6 +104,16 @@ public final class ConversionUtil {
                 }
             case BW:
                 return ImageConversionUtil.BWConvert(data);
+            case COLOR_GRADIENT:
+                try {
+                    return ImageConversionUtil.ColorGradientConvert(data);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(
+                            "TIMEEC ERROR: " + e
+                    );
+                }
+            case BW_GRADIENT:
+                return ImageConversionUtil.BWGradientConvert(data);
             default:
                 throw new IllegalArgumentException(
                         "ERROR: Conversion method " + method.toString() + " provided, not valid for float array input.");
@@ -119,6 +129,10 @@ public final class ConversionUtil {
                 return ConversionMethod.COLOR;
             case "ARGMAX COLOR":
                 return ConversionMethod.ARGMAX_COLOR;
+            case "B&W GRADIENT":
+                return ConversionMethod.BW_GRADIENT;
+            case "COLOR GRADIENT":
+                return ConversionMethod.COLOR_GRADIENT;
             default:
                 return ConversionMethod.DEFAULT;
         }

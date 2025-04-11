@@ -5,12 +5,17 @@ import android.text.InputType;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.DialogFragment;
 import androidx.preference.EditTextPreference;
-import androidx.preference.ListPreference;
+import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
+import com.example.arbenchapp.datatypes.MultiSelectListPreference;
 import com.example.arbenchapp.datatypes.StringMappingPreference;
+import com.example.arbenchapp.ui.settings.MultiSelectDialogFragment;
 import com.example.arbenchapp.ui.settings.SettingsFragment;
+
+import java.util.Set;
 
 public class SettingsActivity extends AppCompatActivity {
     @Override
@@ -27,6 +32,18 @@ public class SettingsActivity extends AppCompatActivity {
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.preferences, rootKey);
+
+            Preference modelSettingsButton = findPreference("model_settings");
+            if (modelSettingsButton != null) {
+                modelSettingsButton.setOnPreferenceClickListener(preference -> {
+                    // Launch ModelSettingsFragment when clicked
+                    getParentFragmentManager().beginTransaction()
+                            .replace(R.id.settings_container, new ModelSettingsFragment())
+                            .addToBackStack(null)
+                            .commit();
+                    return true;
+                });
+            }
         }
     }
 
@@ -37,37 +54,67 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
-    public static class ModelSettingsFragment extends PreferenceFragmentCompat {
+    public static class ModelSettingsFragment extends PreferenceFragmentCompat
+            implements MultiSelectDialogFragment.MultiSelectListener {
+
         @Override
         public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
             setPreferencesFromResource(R.xml.model_preferences, rootKey);
+        }
 
-            ListPreference modelFilePreference = findPreference("model_file_selection");
-            StringMappingPreference mappingPreference = findPreference("output_option_mappings");
+        // Implement interface method
+        @Override
+        public void onMultiSelectResult(String preferenceKey, Set<String> selectedValues) {
+            if (preferenceKey == null) return;
 
-            if (modelFilePreference != null) {
-                modelFilePreference.setOnPreferenceChangeListener((preference, newValue) -> {
-                    // String selectedModelFile = newValue.toString();
-                    return true;
-                });
-            }
-
-            if (mappingPreference != null) {
-                mappingPreference.setOptionsList(
-                        new String[]{"DEFAULT", "BLACK AND WHITE", "COLOR", "ARGMAX COLOR"}
-                );
+            MultiSelectListPreference pref = findPreference(preferenceKey);
+            if (pref != null) {
+                pref.setValues(selectedValues);
+                pref.persistStringSet(selectedValues); // Force immediate save
             }
         }
 
         @Override
-        public void onDisplayPreferenceDialog(@NonNull androidx.preference.Preference preference) {
-            if (preference instanceof StringMappingPreference) {
-                StringMappingPreference.StringMappingDialogFragment dialogFragment =
-                        StringMappingPreference.StringMappingDialogFragment.newInstance(preference.getKey());
+        public void onDisplayPreferenceDialog(@NonNull Preference preference) {
+            if (preference instanceof MultiSelectListPreference) {
+                MultiSelectListPreference multiPref = (MultiSelectListPreference) preference;
+
+                // Validate key exists
+                String key = multiPref.getKey();
+                if (key == null) {
+                    throw new IllegalStateException("Preference must have a key");
+                }
+
+                // Validate entries/values
+                CharSequence[] entries = multiPref.getEntries() != null ? multiPref.getEntries() : new CharSequence[0];
+                CharSequence[] values = multiPref.getEntryValues() != null ? multiPref.getEntryValues() : new CharSequence[0];
+
+                MultiSelectDialogFragment dialog = MultiSelectDialogFragment.newInstance(
+                        entries,
+                        values,
+                        multiPref.getValues(),
+                        key
+                );
+                dialog.setTargetFragment(this, 0);
+                dialog.show(getParentFragmentManager(), "multi_select");
+            } else if (preference instanceof StringMappingPreference) {
+                // Create an instance of the dialog fragment
+                DialogFragment dialogFragment = StringMappingPreference.StringMappingDialogFragment.newInstance(preference.getKey());
                 dialogFragment.setTargetFragment(this, 0);
-                dialogFragment.show(getParentFragmentManager(), null);
+                // Show the dialog
+                dialogFragment.show(getParentFragmentManager(), "StringMappingPreference");
             } else {
                 super.onDisplayPreferenceDialog(preference);
+            }
+        }
+
+        @Override
+        public void onPause() {
+            super.onPause();
+            // Force persist values when leaving fragment
+            MultiSelectListPreference pref = findPreference("decoder_selection");
+            if (pref != null) {
+                pref.persistStringSet(pref.getValues());
             }
         }
     }

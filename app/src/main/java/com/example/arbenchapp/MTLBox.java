@@ -32,10 +32,18 @@ public class MTLBox {
     private final MTLBoxStruct default_mbs;
     private final int secondsBetweenMetrics;
     private final int framesBetweenMetrics;
+    private final Context context;
 
     public MTLBox(Settings settings, Context context) {
         this.settings = settings;
+        this.context = context;
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        boolean splitModel = prefs.getBoolean("split_inference", false);
+        if (splitModel) {
+            // EXPERIMENTAL!!
+
+        }
+
         String modelPath = prefs.getString("model_file_selection", "");
         secondsBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_time", "5"));
         framesBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_frames", "1"));
@@ -153,7 +161,10 @@ public class MTLBox {
             System.err.println("ONNX ORTEXCEPTION: " + e.getMessage());
             return default_mbs;
         }
-        if (monitor.getCurrentTime() > secondsBetweenMetrics || monitor.getNumFrames() >= framesBetweenMetrics) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (monitor.getCurrentTime() > secondsBetweenMetrics ||
+                monitor.getNumFrames() >= framesBetweenMetrics ||
+                !prefs.getBoolean("use_camera", false)) {
             HardwareMonitor.HardwareMetrics hardwareMetrics = monitor.finishExecuteAndMonitor();
             return new MTLBoxStruct(output, bitmap, hardwareMetrics.executionTimeMs, hardwareMetrics);
         }

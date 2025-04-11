@@ -47,7 +47,7 @@ public class StringMappingPreference extends DialogPreference {
         setLayoutResource(R.layout.preference_string_mapping);
 
         // Initialize with default options - customize these as needed
-        optionsList = new String[]{"DEFAULT", "BLACK AND WHITE", "COLOR", "ARGMAX COLOR"};
+        optionsList = new String[]{"DEFAULT", "BLACK AND WHITE", "COLOR", "ARGMAX COLOR", "B&W GRADIENT", "COLOR GRADIENT"};
 
         // Load saved mappings
         loadMappings();

@@ -62,5 +62,7 @@ dependencies {
     implementation libs.camera.camera2
     implementation libs.guava
     implementation libs.gson
+    implementation libs.preference
+    implementation libs.appcompat.v161
     debugImplementation libs.leakcanary.android
 }
