@@ -64,6 +64,10 @@ public final class ImageConversionUtil {
     private static native void convertToBitmapNative(float[] data, int layers, int channels, int height, int width, Bitmap bitmap, int[][] colors);
 
     private static native void convertToGrayscale(float[] data, int height, int width, Bitmap bitmap);
+
+    private static native void convertWithGradient(float[] data, int layers, int channels, int height, int width, Bitmap bitmap);
+
+    private static native void convertWithGradientBW(float[] data, int height, int width, Bitmap bitmap);
 //    public static Bitmap DefaultConvert() {
 //
 //    }
@@ -193,12 +197,6 @@ public final class ImageConversionUtil {
         for (float[][][] layer : data) {
             float[] flatData = flatten(layer, 1, height, width);
             convertToGrayscale(flatData, height, width, bm);
-//            for (int h = 0; h < height; h++) {
-//                for (int w = 0; w < width; w++) {
-//                    int g = (int) (layer[0][h][w] * 255.0);
-//                    bm.setPixel(w, h, Color.argb(255, g, g, g));
-//                }
-//            }
         }
         double endTime = System.nanoTime();
         System.out.println("TIMEEC bw convert (ms): " + ((endTime - startTime) / 1_000_000));
@@ -217,6 +215,31 @@ public final class ImageConversionUtil {
         convertToBitmapNative(flatData, layers, channels, height, width, bm, colors);
         double endTime = System.nanoTime();
         System.out.println("TIMEEC color convert (ms): " + ((endTime - startTime) / 1_000_000));
+        return bm;
+    }
+
+    public static Bitmap BWGradientConvert(float[][][][] data) {
+        int channels = data[0].length;
+        assert channels == 1;
+        int height = data[0][0].length;
+        int width = data[0][0][0].length;
+        Bitmap bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        // only works on last layer rn
+        for (float[][][] layer : data) {
+            float[] flatData = flatten(layer, 1, height, width);
+            convertWithGradientBW(flatData, height, width, bm);
+        }
+        return bm;
+    }
+
+    public static Bitmap ColorGradientConvert(float[][][][] data) throws InterruptedException {
+        int layers = data.length;
+        int channels = data[0].length;
+        int height = data[0][0].length;
+        int width = data[0][0][0].length;
+        Bitmap bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        float[] flatData = flatten(data, layers, channels, height, width);
+        convertWithGradient(flatData, layers, channels, height, width, bm);
         return bm;
     }
 }

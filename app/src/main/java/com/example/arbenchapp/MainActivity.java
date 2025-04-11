@@ -275,7 +275,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     }
 
     public String createDisplayString(String output, MTLBoxStruct processed, boolean write) {
-        if (processed.hasOldMetrics()) {
+        if (processed.hasOldMetrics() && prefs.getBoolean("use_camera", false)) {
             return "Processing...";
         }
         Double tm = processed.getTime();
