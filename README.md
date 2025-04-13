@@ -1,4 +1,4 @@
-# BeAR: Benchmarking in Augmented Reality
+# BeAR: Benchmarking in Augmented Reality<img align="right" width="15%" src="img/BeAR.png">
 Android application for AR benchmarking using MTL models. Developed by Austin Funk as part of his Honors thesis in computer engineering at Brown University.
 ## 🔍 Introduction
 BeAR provides various benchmarking metrics for Multi-Task Learning (MTL) models. The purpose of this app is to provide flexible testing and benchmarking on edge devices without requiring extensive dependencies, such as Google's ARCore. Specific runtime improvements have been implemented as well, notably support for pipelined execution of the encoder and decoder(s).
