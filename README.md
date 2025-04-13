@@ -36,7 +36,7 @@ The metric limiters determine when metrics should be recorded, allowing for more
 Most settings here should be straightforward. **It is essential that all outputs are mapped to a postprocessing method, as the default method does not currently work for ONNX models.** These outputs, as far as I'm aware, are case sensitive and should match **exactly** with the output dictionary produced by the model in, say, a Python environment.<br />
 **PUT IMAGE HERE**
 ## 🙌 Acknowledgements
-
+Thank you to my advisor [Professor Sherief Reda](https://scale-lab.github.io/) for his guidance and expertise. Thank you to [Mahdi Boulila](https://github.com/MahdiBoulila) for your tireless mentorship his support. Thank you to [Harb Lin](https://engineering.brown.edu/people/shangran-lin) for his contributions to model-level acceleration.
 ## ✍️ Authorship
 Current authors of the project:
 - [Austin Funk](https://austin-funk.github.io/)
