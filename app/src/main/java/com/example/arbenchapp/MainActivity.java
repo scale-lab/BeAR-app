@@ -58,7 +58,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     private Resolution res;
     private final ExecutorService inferenceExecutor = Executors.newFixedThreadPool(1);
     private final Object processingLock = new Object();
-    private boolean isProcessingInference = false;
+    private volatile boolean isProcessingInference = false;
     private SharedPreferences prefs;
     private SharedPreferences.OnSharedPreferenceChangeListener listener;
 
@@ -201,49 +201,14 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                 isProcessingInference = true;
             }
             inferenceExecutor.execute(() -> {
-                try {
-                    MTLBoxStruct processed = mtlBox.run(bitmap);
-                    Map<String, Bitmap> bms = processed.getBitmaps();
-                    final List<ImagePage> newPages = new ArrayList<>();
-                    boolean write = true;
-                    for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
-                        newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
-                        write = false;
-                    }
-                    runOnUiThread(() -> {
-                        System.out.println("ONNX adding pages");
-                        for (int i = 0; i < newPages.size(); i++) {
-                            if (imagePageList.size() < i + 2) {
-                                imagePageList.add(newPages.get(i));
-                            } else {
-                                if (processed.hasOldMetrics()) {
-                                    System.out.println("ONNX no new metrics");
-                                    ImagePage hasPrevMetrics = new ImagePage(newPages.get(i).getImage(), imagePageList.get(i + 1).getCaption());
-                                    imagePageList.set(i + 1, hasPrevMetrics);
-                                } else {
-                                    imagePageList.set(i + 1, newPages.get(i));
-                                }
-                            }
-                        }
-                        adapter.notifyDataSetChanged();
-                        synchronized (processingLock) {
-                            isProcessingInference = false;
-                        }
-                    });
-                } catch (Exception e) {
-                    Log.e("MainActivity", "ONNX Error processing frame", e);
-                    runOnUiThread(() -> {
-                        ImagePage ip = new ImagePage(bitmap, "Error processing image: " + e.getMessage());
-                        if (imagePageList.size() < 2) {
-                            imagePageList.add(ip);
-                        } else {
-                            imagePageList.set(1, ip);
-                        }
-                        adapter.notifyDataSetChanged();
-                        synchronized (processingLock) {
-                            isProcessingInference = false;
-                        }
-                    });
+                if (!prefs.getBoolean("split_inference", false)) {
+                    updateDisplay(bitmap);
+                } else {
+                    MTLBoxStruct processed = mtlBox.run(bitmap); // will run split inference
+                    updateDisplay(processed);
+                }
+                synchronized (processingLock) {
+                    isProcessingInference = false;
                 }
             });
         } else {
@@ -271,6 +236,101 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         }
         if (prefs != null && listener != null) {
             prefs.unregisterOnSharedPreferenceChangeListener(listener);
+        }
+    }
+
+    public void updateDisplay(MTLBoxStruct processed) {
+        synchronized (processingLock) {
+            while (isProcessingInference) {} // we'll see if this deadlocks lol
+            isProcessingInference = true;
+        }
+        try {
+            Map<String, Bitmap> bms = processed.getBitmaps();
+            final List<ImagePage> newPages = new ArrayList<>();
+            boolean write = true;
+            for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
+                newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
+                write = false;
+            }
+            runOnUiThread(() -> {
+                System.out.println("ONNX adding pages");
+                for (int i = 0; i < newPages.size(); i++) {
+                    if (imagePageList.size() < i + 2) {
+                        imagePageList.add(newPages.get(i));
+                    } else {
+                        if (processed.hasOldMetrics()) {
+                            System.out.println("ONNX no new metrics");
+                            ImagePage hasPrevMetrics = new ImagePage(newPages.get(i).getImage(), imagePageList.get(i + 1).getCaption());
+                            imagePageList.set(i + 1, hasPrevMetrics);
+                        } else {
+                            imagePageList.set(i + 1, newPages.get(i));
+                        }
+                    }
+                }
+                adapter.notifyDataSetChanged();
+                synchronized (processingLock) {
+                    isProcessingInference = false;
+                }
+            });
+        } catch (Exception e) {
+            Log.e("MainActivity", "ONNX Error processing frame", e);
+            runOnUiThread(() -> {
+                Bitmap disp = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+                if (processed != null) {
+                    disp = processed.getInput();
+                }
+                ImagePage ip = new ImagePage(disp, "Error processing image: " + e.getMessage());
+                if (imagePageList.size() < 2) {
+                    imagePageList.add(ip);
+                } else {
+                    imagePageList.set(1, ip);
+                }
+                adapter.notifyDataSetChanged();
+                synchronized (processingLock) {
+                    isProcessingInference = false;
+                }
+            });
+        }
+    }
+
+    public void updateDisplay(Bitmap bitmap) {
+        try {
+            MTLBoxStruct processed = mtlBox.run(bitmap);
+            Map<String, Bitmap> bms = processed.getBitmaps();
+            final List<ImagePage> newPages = new ArrayList<>();
+            boolean write = true;
+            for (Map.Entry<String, Bitmap> entry : bms.entrySet()) {
+                newPages.add(new ImagePage(entry.getValue(), createDisplayString(entry.getKey(), processed, write)));
+                write = false;
+            }
+            runOnUiThread(() -> {
+                System.out.println("ONNX adding pages");
+                for (int i = 0; i < newPages.size(); i++) {
+                    if (imagePageList.size() < i + 2) {
+                        imagePageList.add(newPages.get(i));
+                    } else {
+                        if (processed.hasOldMetrics()) {
+                            System.out.println("ONNX no new metrics");
+                            ImagePage hasPrevMetrics = new ImagePage(newPages.get(i).getImage(), imagePageList.get(i + 1).getCaption());
+                            imagePageList.set(i + 1, hasPrevMetrics);
+                        } else {
+                            imagePageList.set(i + 1, newPages.get(i));
+                        }
+                    }
+                }
+                adapter.notifyDataSetChanged();
+            });
+        } catch (Exception e) {
+            Log.e("MainActivity", "ONNX Error processing frame", e);
+            runOnUiThread(() -> {
+                ImagePage ip = new ImagePage(bitmap, "Error processing image: " + e.getMessage());
+                if (imagePageList.size() < 2) {
+                    imagePageList.add(ip);
+                } else {
+                    imagePageList.set(1, ip);
+                }
+                adapter.notifyDataSetChanged();
+            });
         }
     }
 
