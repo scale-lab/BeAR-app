@@ -10,6 +10,7 @@ import android.os.BatteryManager;
 import android.os.Debug;
 import android.util.Log;
 
+import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.util.ConversionUtil;
 import com.google.common.reflect.TypeToken;
@@ -25,8 +26,14 @@ import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxTensorLike;
@@ -226,11 +233,215 @@ public class HardwareMonitor {
         return Debug.threadCpuTimeNanos() / 1_000_000; // Convert to milliseconds
     }
 
+    public static class SplitModelMonitor {
+        private final HardwareMonitor hardwareMonitor;
+
+        private final OrtSession encoder;
+        private final OrtSession[] decoders;
+        private final OrtEnvironment env;
+        private final Settings settings;
+        private final Map<String, String> outputMappings;
+        private final String inputName;
+
+        private boolean started;
+        private HardwareMetrics startMetrics;
+        private BatteryStats startBattery;
+        private double startTime;
+        private int numFrames;
+        private double avgTime;
+        private double avgTimePP;
+
+        public SplitModelMonitor(
+                OrtSession encoder,
+                OrtSession[] decoders,
+                OrtEnvironment env,
+                Settings settings,
+                String inputName,
+                Context context) {
+            this.hardwareMonitor = new HardwareMonitor(context);
+            this.inputName = inputName;
+            if (prefs == null) {
+                prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
+            }
+            if (decoders.length == 0) {
+                Log.e("SPLIT ERROR", "NO DECODERS SELECTED!");
+            }
+
+            this.encoder = encoder;
+            this.decoders = decoders;
+            this.env = env;
+            this.settings = settings;
+            String json = prefs.getString("output_option_mappings", "");
+            Gson gson = new Gson();
+            Type type = new TypeToken<HashMap<String, String>>(){}.getType();
+            this.outputMappings = gson.fromJson(json, type);
+
+            this.started = false;
+        }
+
+        public void startExecuteAndMonitor() {
+            started = true;
+            startMetrics = hardwareMonitor.getBaseMetrics();
+            startBattery = hardwareMonitor.getBatteryStats();
+            startTime = System.nanoTime();
+            numFrames = 0;
+            avgTime = 0;
+            avgTimePP = 0;
+        }
+
+        public Map<String, Bitmap> run(Bitmap input) throws OrtException {
+            if (!started) {
+                System.out.println("CANNOT RUN INFERENCE WITHOUT STARTING METRICS");
+                return null;
+            }
+            double startInfTime;
+            double endInfTime;
+            double startPPTime = System.nanoTime();
+            numFrames++;
+
+            startInfTime = System.nanoTime();
+            double startConversionTime = System.nanoTime();
+            OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
+            System.out.println("OSDIFOHLS conversion time: " + ((System.nanoTime() - startConversionTime) / 1_000_000) + " ms");
+            Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
+
+            OrtSession.Result featureMap = encoder.run(inputs);
+            endInfTime = System.nanoTime();
+            double startDecoderTime = System.nanoTime();
+            Map<String, Bitmap> output = runDecoders(featureMap);
+            System.out.println("OSDIFOHLS decoder time: " + ((System.nanoTime() - startDecoderTime) / 1_000_000) + " ms");
+
+            long endPPTime = System.nanoTime();
+            if (numFrames == 1) {
+                avgTime = endInfTime - startInfTime;
+                avgTimePP = endPPTime - startPPTime;
+            } else {
+                avgTime = ((avgTime * (numFrames - 1)) / numFrames) + ((endInfTime - startInfTime) / numFrames);
+                avgTimePP = ((avgTimePP * (numFrames - 1)) / numFrames) + ((endPPTime - startPPTime) / numFrames);
+            }
+            return output;
+        }
+
+        public OrtSession.Result runEncoder(Bitmap input) throws OrtException {
+            OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
+            Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
+            return encoder.run(inputs);
+        }
+
+        public Map<String, Bitmap> runDecoders(OrtSession.Result featureMap) throws OrtException {
+            // convert featureMap
+            System.out.println("WADSGOIJ: " + featureMap);
+            OnnxTensor inputTensor = null;
+            for (Map.Entry<String, OnnxValue> entry : featureMap) {
+                String key = entry.getKey();
+                OnnxValue value = entry.getValue();
+                if (Objects.equals(key, "last_hidden_state")) {
+                    inputTensor = (OnnxTensor) value;
+                }
+                System.out.println("WADSGOIJ key: " + key);
+                System.out.println("WADSGOIJ value: " + value);
+            }
+            if (inputTensor == null) {
+                return null;
+            }
+            Map<String, Bitmap> output = new ConcurrentHashMap<>();
+            ExecutorService executor = Executors.newFixedThreadPool(decoders.length);
+            ExecutorCompletionService<Void> completionService = new ExecutorCompletionService<>(executor);
+            try {
+                for (OrtSession decoder : decoders) {
+                    OnnxTensor finalInputTensor = inputTensor;
+                    completionService.submit(() -> {
+                        Map<String, ? extends OnnxTensorLike> input = Map.of("last_hidden_state", finalInputTensor);
+                        OrtSession.Result result = decoder.run(input);
+                        for (Map.Entry<String, OnnxValue> entry : result) {
+                            System.out.println("WADSGOIJ decoder output: " + entry);
+                            String key = entry.getKey();
+                            OnnxValue value = entry.getValue();
+                            if (value.getType() != OnnxValue.OnnxValueType.ONNX_TYPE_TENSOR) {
+                                System.err.println("ONNX ERROR: Value isn't in tensor.");
+                                throw new RuntimeException("Non-tensor value encountered for key: " + key);
+                            }
+                            float[][][][] ft = (float[][][][]) value.getValue();
+                            Bitmap bm = ConversionUtil.FloatArrayToImage(
+                                    ft,
+                                    ConversionUtil.stringToConversionMethod(
+                                            Objects.requireNonNull(outputMappings.getOrDefault(key, ""))
+                                    )
+                            );
+                            output.put(key, bm);
+                        }
+                        return null;
+                    });
+                }
+                int completedTasks = 0;
+                while (completedTasks < decoders.length) {
+                    Future<Void> future = completionService.take();
+                    completedTasks++;
+                    try {
+                        future.get();
+                    } catch (ExecutionException e) {
+                        Objects.requireNonNull(e.getCause()).printStackTrace();
+                        executor.shutdownNow(); // Attempt to cancel remaining tasks
+                        return null;
+                    }
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                executor.shutdownNow();
+                return null;
+            } finally {
+                executor.shutdown();
+            }
+            return output;
+        }
+
+        public HardwareMetrics finishExecuteAndMonitor() {
+            started = false;
+
+            // Get post-execution metrics
+            double endTime = System.nanoTime();
+            HardwareMetrics endMetrics = hardwareMonitor.getBaseMetrics();
+            BatteryStats endBatteryStats = hardwareMonitor.getBatteryStats();
+
+            // Calculate execution time
+            double totalExecutionTime = (endTime - startTime) / 1_000_000; // Convert to milliseconds
+            double fps = numFrames / (totalExecutionTime / 1_000);
+            double avgExecution = avgTime / 1_000_000;
+            double avgExecutionWithProcessing = avgTimePP / 1_000_000;
+            double cpuUsageDelta = endMetrics.cpuUsagePercent - startMetrics.cpuUsagePercent;
+            long memoryUsedBytes = endMetrics.memoryUsedBytes - startMetrics.memoryUsedBytes;
+
+            // return metrics
+            return new HardwareMetrics(
+                    avgExecution,
+                    avgExecutionWithProcessing,
+                    fps,
+                    totalExecutionTime,
+                    numFrames,
+                    endMetrics.cpuUsagePercent,
+                    cpuUsageDelta,
+                    endMetrics.threadCpuTimeMs,
+                    memoryUsedBytes,
+                    startBattery,
+                    endBatteryStats
+            );
+        }
+
+        public int getNumFrames() { return numFrames; }
+
+        public double getCurrentTime() {
+            return (System.nanoTime() - startTime) / 1_000_000_000;
+        }
+
+        public boolean hasStarted() { return started; }
+    }
+
     public static class PyTorchModelMonitor {
         private final Module model;
         private final OrtSession session;
         private final OrtEnvironment env;
         private final Settings settings;
+        private final String inputName;
         private final HardwareMonitor hardwareMonitor;
         private final boolean outputDict;
         private long lastExecutionTime = 0;
@@ -250,6 +461,7 @@ public class HardwareMonitor {
             this.session = null;
             this.env = null;
             this.hardwareMonitor = new HardwareMonitor(context);
+            this.inputName = "input";
             outputDict = false;
             if (prefs == null) {
                 prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
@@ -267,6 +479,30 @@ public class HardwareMonitor {
             this.session = model;
             this.env = env;
             this.hardwareMonitor = new HardwareMonitor(context);
+            this.inputName = "input";
+            outputDict = true;
+            if (prefs == null) {
+                prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
+            }
+            String json = prefs.getString("output_option_mappings", "");
+            Gson gson = new Gson();
+            Type type = new TypeToken<HashMap<String, String>>(){}.getType();
+            outputMappings = gson.fromJson(json, type);
+            started = false;
+        }
+
+        public PyTorchModelMonitor(
+                OrtSession model,
+                OrtEnvironment env,
+                Settings settings,
+                String inputName,
+                Context context) {
+            this.model = null;
+            this.settings = settings;
+            this.session = model;
+            this.env = env;
+            this.hardwareMonitor = new HardwareMonitor(context);
+            this.inputName = inputName;
             outputDict = true;
             if (prefs == null) {
                 prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
@@ -306,7 +542,7 @@ public class HardwareMonitor {
                     return null;
                 }
                 OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
-                Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", inp);
+                Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
                 startInfTime = System.nanoTime();
                 OrtSession.Result outputs = session.run(inputs);
                 endInfTime = System.nanoTime();
@@ -417,7 +653,7 @@ public class HardwareMonitor {
                     return null;
                 }
                 OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
-                Map<String, ? extends OnnxTensorLike> inputs = Map.of("input", inp);
+                Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
                 startTime = System.nanoTime();
                 OrtSession.Result outputs = session.run(inputs);
                 endTime = System.nanoTime();
