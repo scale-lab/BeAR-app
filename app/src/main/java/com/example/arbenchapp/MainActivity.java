@@ -112,7 +112,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         prefs = PreferenceManager.getDefaultSharedPreferences(this);
         res = new Resolution(prefs.getString("resolution", "224,224"));
         Settings s = new Settings(res.getHeight(), res.getWidth());
-        mtlBox = new MTLBox(s, this);
+        mtlBox = new MTLBox(s, this, this);
 
         listener = new SharedPreferences.OnSharedPreferenceChangeListener() {
             @Override
@@ -120,7 +120,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                 System.out.println("ONNX preferences changed");
                 res = new Resolution(sharedPreferences.getString("resolution", "224,224"));
                 Settings new_s = new Settings(res.getHeight(), res.getWidth());
-                mtlBox = new MTLBox(new_s, context);
+                mtlBox = new MTLBox(new_s, context, context);
             }
         };
         prefs.registerOnSharedPreferenceChangeListener(listener);
@@ -203,12 +203,18 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
             inferenceExecutor.execute(() -> {
                 if (!prefs.getBoolean("split_inference", false)) {
                     updateDisplay(bitmap);
-                } else {
+                    synchronized (processingLock) {
+                        isProcessingInference = false;
+                    }
+                } else if (!prefs.getBoolean("split_pipeline", false)) {
+                    // run sequentially
                     MTLBoxStruct processed = mtlBox.run(bitmap); // will run split inference
                     updateDisplay(processed);
-                }
-                synchronized (processingLock) {
-                    isProcessingInference = false;
+                    synchronized (processingLock) {
+                        isProcessingInference = false;
+                    }
+                } else {
+                    mtlBox.run(bitmap);
                 }
             });
         } else {
@@ -239,11 +245,13 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         }
     }
 
-    public void updateDisplay(MTLBoxStruct processed) {
+    public void unlock() {
         synchronized (processingLock) {
-            while (isProcessingInference) {} // we'll see if this deadlocks lol
-            isProcessingInference = true;
+            isProcessingInference = false;
         }
+    }
+
+    public void updateDisplay(MTLBoxStruct processed) {
         try {
             Map<String, Bitmap> bms = processed.getBitmaps();
             final List<ImagePage> newPages = new ArrayList<>();
@@ -268,9 +276,6 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                     }
                 }
                 adapter.notifyDataSetChanged();
-                synchronized (processingLock) {
-                    isProcessingInference = false;
-                }
             });
         } catch (Exception e) {
             Log.e("MainActivity", "ONNX Error processing frame", e);
@@ -286,9 +291,6 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                     imagePageList.set(1, ip);
                 }
                 adapter.notifyDataSetChanged();
-                synchronized (processingLock) {
-                    isProcessingInference = false;
-                }
             });
         }
     }

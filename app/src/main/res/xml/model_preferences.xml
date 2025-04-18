@@ -13,6 +13,13 @@
         android:dependency="run_inference"
         />
 
+    <SwitchPreferenceCompat
+        android:key="split_pipeline"
+        android:title="Pipelined Execution?"
+        android:defaultValue="false"
+        android:dependency="split_inference"
+        />
+
     <com.example.arbenchapp.datatypes.AssetFilePreference
         android:key="model_file_selection"
         android:title="Select Model File"

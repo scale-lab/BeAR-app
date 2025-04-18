@@ -11,6 +11,7 @@ import com.example.arbenchapp.datatypes.ModelType;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.datatypes.SplitInfo;
 import com.example.arbenchapp.monitor.HardwareMonitor;
+import com.example.arbenchapp.monitor.ProcessingResultListener;
 import com.example.arbenchapp.util.ConversionUtil;
 
 import org.pytorch.Module;
@@ -18,6 +19,7 @@ import org.pytorch.Module;
 import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -29,7 +31,7 @@ import java.util.Set;
 import ai.onnxruntime.*;
 import ai.onnxruntime.providers.NNAPIFlags;
 
-public class MTLBox {
+public class MTLBox implements ProcessingResultListener {
 
     private final Settings settings;
     private final File file;
@@ -42,10 +44,15 @@ public class MTLBox {
     private final Context context;
     private SplitInfo splitInfo;
     private final String inputName;
+    private double startTime;
+    private final WeakReference<MainActivity> mainActivity;
 
-    public MTLBox(Settings settings, Context context) {
+    private double lastTime = 0;
+
+    public MTLBox(Settings settings, Context context, MainActivity mainActivity) {
         this.settings = settings;
         this.context = context;
+        this.mainActivity = new WeakReference<>(mainActivity);
 
         Bitmap default_bm = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
         Map<String, Bitmap> default_map = new HashMap<>();
@@ -57,6 +64,7 @@ public class MTLBox {
         secondsBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_time", "5"));
         framesBetweenMetrics = Integer.parseInt(prefs.getString("update_freq_frames", "1"));
         boolean splitModel = prefs.getBoolean("split_inference", false);
+        boolean pipelinedModel = prefs.getBoolean("split_pipeline", false);
         String encoderName = prefs.getString("encoder_selection", "");
         Set<String> decoderNames = prefs.getStringSet("decoder_selection", new HashSet<>());
 
@@ -101,14 +109,27 @@ public class MTLBox {
                     System.out.println("ORTEXCEPTION decoder at " + i + ": " + decoderFiles[i].getPath());
                     decoderSessions[i] = createSession(decoderFiles[i], env);
                 }
-                HardwareMonitor.SplitModelMonitor splitModelMonitor = new HardwareMonitor.SplitModelMonitor(
-                        encoderSession,
-                        decoderSessions,
-                        env,
-                        viewSettings(),
-                        inputName,
-                        context
-                );
+                HardwareMonitor.SplitModelMonitor splitModelMonitor;
+                if (pipelinedModel) {
+                    splitModelMonitor = new HardwareMonitor.SplitModelMonitor(
+                            encoderSession,
+                            decoderSessions,
+                            env,
+                            viewSettings(),
+                            inputName,
+                            this,
+                            context
+                    );
+                } else {
+                    splitModelMonitor = new HardwareMonitor.SplitModelMonitor(
+                            encoderSession,
+                            decoderSessions,
+                            env,
+                            viewSettings(),
+                            inputName,
+                            context
+                    );
+                }
                 this.splitInfo = new SplitInfo(encoderFile, decoderFiles, splitModelMonitor);
                 this.metrics = new HardwareMonitor.HardwareMetrics(context);
             } catch (OrtException e) {
@@ -164,13 +185,19 @@ public class MTLBox {
     }
 
     public MTLBoxStruct run(Bitmap bitmap) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         switch (modelType) {
             case PT:
                 return runFromPt(bitmap);
             case ONNX:
                 return runFromOnnx(bitmap);
             case SPLIT:
-                return runSplit(bitmap);
+                if (!prefs.getBoolean("split_pipeline", false)) {
+                    return runSeqSplit(bitmap);
+                } else {
+                    runSplit(bitmap);
+                    return null;
+                }
             case ERROR:
                 System.err.println("PREVIOUS ERROR IN DETERMINING MODEL TYPE");
                 return default_mbs;
@@ -259,7 +286,42 @@ public class MTLBox {
         return new MTLBoxStruct(output, bitmap, (System.nanoTime() - startTime) / 1_000_000);
     }
 
-    private MTLBoxStruct runSplit(Bitmap bitmap) {
+    private void runSplit(Bitmap bitmap) {
+        if (splitInfo == null) {
+            System.err.println("ERROR RUNNING SPLIT: Split Info cannot be null.");
+            return;
+        }
+        if (splitInfo.getMonitor() == null) {
+            System.err.println("ERROR RUNNING SPLIT: Split Info must have a monitor.");
+            return;
+        }
+        if (!splitInfo.getMonitor().hasStarted()) {
+            splitInfo.getMonitor().startExecuteAndMonitor();
+        }
+        try {
+            if (!viewSettings().isDimsInit()) {
+                System.err.println("ONNX: IMAGE DIMENSIONS NOT SPECIFIED IN SETTINGS!");
+                return;
+            }
+            if (bitmap.getWidth() != viewSettings().getImgWidth() ||
+                    bitmap.getHeight() != viewSettings().getImgHeight()) {
+                Bitmap scaled = Bitmap.createScaledBitmap(
+                        bitmap,
+                        viewSettings().getImgWidth(),
+                        viewSettings().getImgHeight(),
+                        true
+                );
+                System.out.println("uyoabdsfilun: Queue run pre-call");
+                splitInfo.getMonitor().queueRun(scaled);
+            } else {
+                splitInfo.getMonitor().queueRun(bitmap);
+            }
+        } catch (OrtException e) {
+            System.err.println("ONNX ORTEXCEPTION: " + e.getMessage());
+        }
+    }
+
+    private MTLBoxStruct runSeqSplit(Bitmap bitmap) {
         System.out.println("WADSGOIJ runSplit");
         if (splitInfo == null) {
             return default_mbs;
@@ -270,7 +332,7 @@ public class MTLBox {
         if (!splitInfo.getMonitor().hasStarted()) {
             splitInfo.getMonitor().startExecuteAndMonitor();
         }
-        double startTime = System.nanoTime();
+        startTime = System.nanoTime();
         Map<String, Bitmap> output;
         try {
             if (!viewSettings().isDimsInit()) {
@@ -301,6 +363,48 @@ public class MTLBox {
             return new MTLBoxStruct(output, bitmap, hardwareMetrics.executionTimeMs, hardwareMetrics);
         }
         return new MTLBoxStruct(output, bitmap, (System.nanoTime() - startTime) / 1_000_000);
+    }
+
+    @Override
+    public void requestNextFrame() {
+        System.out.println("uyoabdsfilun: Request next frame");
+        MainActivity activity = mainActivity.get();
+        if (activity != null) {
+            activity.unlock();
+        }
+    }
+
+    @Override
+    public void onProcessingComplete(Bitmap input, Map<String, Bitmap> output) {
+        double gap;
+        if (lastTime == 0) {
+            gap = 0;
+            lastTime = System.nanoTime();
+        } else {
+            double newTime = System.nanoTime();
+            gap = (newTime - lastTime) / 1_000_000;
+            lastTime = newTime;
+        }
+        System.out.println("uyoabdsfilun: Processing complete - " + gap + " ms");
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (splitInfo.getMonitor().getCurrentTime() > secondsBetweenMetrics ||
+                splitInfo.getMonitor().getNumFrames() >= framesBetweenMetrics ||
+                !prefs.getBoolean("use_camera", false)) {
+            HardwareMonitor.HardwareMetrics hardwareMetrics = splitInfo.getMonitor().finishExecuteAndMonitor();
+            MainActivity activity = mainActivity.get();
+            if (activity != null) {
+                activity.updateDisplay(
+                        new MTLBoxStruct(output, input, hardwareMetrics.executionTimeMs, hardwareMetrics)
+                );
+            }
+            return;
+        }
+        MainActivity activity = mainActivity.get();
+        if (activity != null) {
+            activity.updateDisplay(
+                    new MTLBoxStruct(output, input, (System.nanoTime() - startTime) / 1_000_000)
+            );
+        }
     }
 
     private OrtSession createNNSession(File file, OrtEnvironment env) throws OrtException {
