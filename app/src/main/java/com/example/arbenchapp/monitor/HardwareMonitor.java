@@ -26,6 +26,7 @@ import java.lang.reflect.Type;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
@@ -33,6 +34,7 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import ai.onnxruntime.OnnxTensor;
@@ -235,6 +237,11 @@ public class HardwareMonitor {
 
     public static class SplitModelMonitor {
         private final HardwareMonitor hardwareMonitor;
+        private final ProcessingResultListener listener;
+
+        private final BlockingQueue<OrtSession.Result> decoderQueue = new LinkedBlockingQueue<>(1);
+        private final ExecutorService encoderService = Executors.newSingleThreadExecutor();
+        private final ExecutorService decoderService = Executors.newSingleThreadExecutor();
 
         private final OrtSession encoder;
         private final OrtSession[] decoders;
@@ -242,6 +249,12 @@ public class HardwareMonitor {
         private final Settings settings;
         private final Map<String, String> outputMappings;
         private final String inputName;
+
+        private final Object dataLock = new Object();
+        private final BlockingQueue<Double> startFrameTimes = new LinkedBlockingQueue<>(2);
+        private final BlockingQueue<Double> endFrameTimes = new LinkedBlockingQueue<>(2);
+        private final BlockingQueue<Double> startInferenceFrameTimes = new LinkedBlockingQueue<>(2);
+        private final BlockingQueue<Double> endInferenceFrameTimes = new LinkedBlockingQueue<>(2);
 
         private boolean started;
         private HardwareMetrics startMetrics;
@@ -260,6 +273,37 @@ public class HardwareMonitor {
                 Context context) {
             this.hardwareMonitor = new HardwareMonitor(context);
             this.inputName = inputName;
+            this.listener = null;
+            if (prefs == null) {
+                prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
+            }
+            if (decoders.length == 0) {
+                Log.e("SPLIT ERROR", "NO DECODERS SELECTED!");
+            }
+
+            this.encoder = encoder;
+            this.decoders = decoders;
+            this.env = env;
+            this.settings = settings;
+            String json = prefs.getString("output_option_mappings", "");
+            Gson gson = new Gson();
+            Type type = new TypeToken<HashMap<String, String>>(){}.getType();
+            this.outputMappings = gson.fromJson(json, type);
+
+            this.started = false;
+        }
+
+        public SplitModelMonitor(
+                OrtSession encoder,
+                OrtSession[] decoders,
+                OrtEnvironment env,
+                Settings settings,
+                String inputName,
+                ProcessingResultListener listener,
+                Context context) {
+            this.hardwareMonitor = new HardwareMonitor(context);
+            this.inputName = inputName;
+            this.listener = listener;
             if (prefs == null) {
                 prefs = PreferenceManager.getDefaultSharedPreferences(this.hardwareMonitor.context);
             }
@@ -280,13 +324,75 @@ public class HardwareMonitor {
         }
 
         public void startExecuteAndMonitor() {
-            started = true;
-            startMetrics = hardwareMonitor.getBaseMetrics();
-            startBattery = hardwareMonitor.getBatteryStats();
-            startTime = System.nanoTime();
-            numFrames = 0;
-            avgTime = 0;
-            avgTimePP = 0;
+            synchronized (dataLock) {
+                started = true;
+                startMetrics = hardwareMonitor.getBaseMetrics();
+                startBattery = hardwareMonitor.getBatteryStats();
+                startTime = System.nanoTime();
+                numFrames = 0;
+                avgTime = 0;
+                avgTimePP = 0;
+            }
+        }
+
+        public void queueRun(Bitmap bitmap) throws OrtException {
+            if (listener == null) {
+                System.err.println("QUEUE RUN ERROR: Listener cannot be null.");
+                return;
+            }
+            // schedule encoder
+            encoderService.submit(() -> {
+                try {
+                    System.out.println("uyoabdsfilun: Start encoder.");
+                    double startTime = System.nanoTime();
+                    startInferenceFrameTimes.put(startTime);
+                    startFrameTimes.put(startTime);
+                    OrtSession.Result result = runEncoder(bitmap);
+                    decoderQueue.put(result);
+                    double endTime = System.nanoTime();
+                    System.out.println("uyoabdsfilun: Encoder time: " + ((endTime - startTime) / 1_000_000));
+                    endInferenceFrameTimes.add(endTime);
+                    listener.requestNextFrame();
+                } catch (InterruptedException e) {
+                    System.err.println("QUEUE RUN ERROR: Interrupt while taking from encoder queue.");
+                    listener.requestNextFrame();
+                } catch (OrtException e) {
+                    System.err.println("QUEUE RUN ERROR: Error running encoder session:: " + e);
+                    listener.requestNextFrame();
+                }
+            });
+            // schedule decoder
+            decoderService.submit(() -> {
+                try {
+                    System.out.println("uyoabdsfilun: Trying to take from decoder queue.");
+                    OrtSession.Result featureMap = decoderQueue.take();
+                    System.out.println("uyoabdsfilun: Successfully took from decoder queue.");
+                    double startDecoderTime = System.nanoTime();
+                    Map<String, Bitmap> output = runDecoders(featureMap);
+                    System.out.println("uyoabdsfilun: Decoder runtime = " + ((System.nanoTime() - startDecoderTime) / 1_000_000));
+                    synchronized (dataLock) {
+                        numFrames++;
+                        double endTime = System.nanoTime();
+                        endFrameTimes.put(endTime);
+                        double endInferenceFrameTime = endInferenceFrameTimes.take();
+                        double startInferenceFrameTime = startInferenceFrameTimes.take();
+                        double endFrameTime = endFrameTimes.take();
+                        double startFrameTime = startFrameTimes.take();
+                        if (numFrames == 1) {
+                            avgTime = endInferenceFrameTime - startInferenceFrameTime;
+                            avgTimePP = endFrameTime - startFrameTime;
+                        } else {
+                            avgTime = ((avgTime * (numFrames - 1)) / numFrames) + ((endInferenceFrameTime - startInferenceFrameTime) / numFrames);
+                            avgTimePP = ((avgTimePP * (numFrames - 1)) / numFrames) + ((endFrameTime - startFrameTime) / numFrames);
+                        }
+                    }
+                    listener.onProcessingComplete(bitmap, output);
+                } catch (InterruptedException e) {
+                    System.err.println("QUEUE RUN ERROR: Interrupt while taking from decoder queue.");
+                } catch (OrtException e) {
+                    System.err.println("QUEUE RUN ERROR: Error running decoder sessions:: " + e);
+                }
+            });
         }
 
         public Map<String, Bitmap> run(Bitmap input) throws OrtException {
@@ -396,35 +502,37 @@ public class HardwareMonitor {
         }
 
         public HardwareMetrics finishExecuteAndMonitor() {
-            started = false;
+            synchronized (dataLock) {
+                started = false;
 
-            // Get post-execution metrics
-            double endTime = System.nanoTime();
-            HardwareMetrics endMetrics = hardwareMonitor.getBaseMetrics();
-            BatteryStats endBatteryStats = hardwareMonitor.getBatteryStats();
+                // Get post-execution metrics
+                double endTime = System.nanoTime();
+                HardwareMetrics endMetrics = hardwareMonitor.getBaseMetrics();
+                BatteryStats endBatteryStats = hardwareMonitor.getBatteryStats();
 
-            // Calculate execution time
-            double totalExecutionTime = (endTime - startTime) / 1_000_000; // Convert to milliseconds
-            double fps = numFrames / (totalExecutionTime / 1_000);
-            double avgExecution = avgTime / 1_000_000;
-            double avgExecutionWithProcessing = avgTimePP / 1_000_000;
-            double cpuUsageDelta = endMetrics.cpuUsagePercent - startMetrics.cpuUsagePercent;
-            long memoryUsedBytes = endMetrics.memoryUsedBytes - startMetrics.memoryUsedBytes;
+                // Calculate execution time
+                double totalExecutionTime = (endTime - startTime) / 1_000_000; // Convert to milliseconds
+                double fps = numFrames / (totalExecutionTime / 1_000);
+                double avgExecution = avgTime / 1_000_000;
+                double avgExecutionWithProcessing = avgTimePP / 1_000_000;
+                double cpuUsageDelta = endMetrics.cpuUsagePercent - startMetrics.cpuUsagePercent;
+                long memoryUsedBytes = endMetrics.memoryUsedBytes - startMetrics.memoryUsedBytes;
 
-            // return metrics
-            return new HardwareMetrics(
-                    avgExecution,
-                    avgExecutionWithProcessing,
-                    fps,
-                    totalExecutionTime,
-                    numFrames,
-                    endMetrics.cpuUsagePercent,
-                    cpuUsageDelta,
-                    endMetrics.threadCpuTimeMs,
-                    memoryUsedBytes,
-                    startBattery,
-                    endBatteryStats
-            );
+                // return metrics
+                return new HardwareMetrics(
+                        avgExecution,
+                        avgExecutionWithProcessing,
+                        fps,
+                        totalExecutionTime,
+                        numFrames,
+                        endMetrics.cpuUsagePercent,
+                        cpuUsageDelta,
+                        endMetrics.threadCpuTimeMs,
+                        memoryUsedBytes,
+                        startBattery,
+                        endBatteryStats
+                );
+            }
         }
 
         public int getNumFrames() { return numFrames; }
