@@ -4,6 +4,74 @@
 
 #include <jni.h>
 #include <android/bitmap.h>
+#include <arm_neon.h>
+#include <android/log.h>
+
+#define LOG_TAG "BitmapProcessing"
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+
+inline void processPixel(uint32_t pixel, int bgRed, int bgGreen, int bgBlue,
+                         float* rChannel, float* gChannel, float* bChannel) {
+    constexpr float scale = 1.0f / (255.0f * 255.0f);
+    const uint32_t alpha = (pixel >> 24) & 0xFF;
+    const uint32_t red = (pixel >> 16) & 0xFF;
+    const uint32_t green = (pixel >> 8) & 0xFF;
+    const uint32_t blue = pixel & 0xFF;
+
+    *rChannel = (red * alpha + bgRed * (255 - alpha)) * scale;
+    *gChannel = (green * alpha + bgGreen * (255 - alpha)) * scale;
+    *bChannel = (blue * alpha + bgBlue * (255 - alpha)) * scale;
+}
+
+extern "C" {
+JNIEXPORT void JNICALL
+Java_com_example_arbenchapp_util_ImageConversionUtil_nativeProcessPixels(
+        JNIEnv *env,
+        jclass clazz,
+        jobject bitmap,
+        jobject floatBuffer,
+        jint bgColor,
+        jint totalPixels) {
+    AndroidBitmapInfo bitmapInfo;
+    void *pixels;
+    int result;
+
+    // Get bitmap info and lock pixels
+    if ((result = AndroidBitmap_getInfo(env, bitmap, &bitmapInfo)) < 0) {
+        LOGD("AndroidBitmap_getInfo failed: %d", result);
+        return;
+    }
+    if (bitmapInfo.format != ANDROID_BITMAP_FORMAT_RGBA_8888) {
+        LOGD("Unsupported bitmap format");
+        return;
+    }
+    if ((result = AndroidBitmap_lockPixels(env, bitmap, &pixels)) < 0) {
+        LOGD("AndroidBitmap_lockPixels failed: %d", result);
+        return;
+    }
+
+    // Extract background color components
+    const int bgRed = (bgColor >> 16) & 0xFF;
+    const int bgGreen = (bgColor >> 8) & 0xFF;
+    const int bgBlue = bgColor & 0xFF;
+
+    // Get direct buffer access
+    float *floatBufferPtr = (float *) env->GetDirectBufferAddress(floatBuffer);
+    auto *pixelPtr = static_cast<uint32_t *>(pixels);
+
+    // Process all pixels
+    for (int i = 0; i < totalPixels; i++) {
+        const uint32_t pixel = pixelPtr[i];
+        float *rChannel = floatBufferPtr + i;
+        float *gChannel = rChannel + totalPixels;
+        float *bChannel = gChannel + totalPixels;
+
+        processPixel(pixel, bgRed, bgGreen, bgBlue, rChannel, gChannel, bChannel);
+    }
+
+    AndroidBitmap_unlockPixels(env, bitmap);
+}
+}
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -105,10 +173,11 @@ Java_com_example_arbenchapp_util_ImageConversionUtil_convertWithGradient(
             }
 
             // Get the color for the chosen channel
-            float ratio = (float)chosenChannel / (float)channels;
-            int red = ratio < 0.5 ? 255 - (int)(2.0 * (0.5 - ratio) * 255.0) : 0;
-            int green = ratio < 0.5 ? (int)(2.0 * ratio * 255.0) : (int)(((-2.0 * ratio) + 2) * 255.0);
-            int blue = ratio < 0.5 ? 0 : (int)(2.0 * (ratio - 0.5) * 255.0);
+            float ratio = (float) chosenChannel / (float) channels;
+            int red = ratio < 0.5 ? 255 - (int) (2.0 * (0.5 - ratio) * 255.0) : 0;
+            int green = ratio < 0.5 ? (int) (2.0 * ratio * 255.0) : (int) (((-2.0 * ratio) + 2) *
+                                                                           255.0);
+            int blue = ratio < 0.5 ? 0 : (int) (2.0 * (ratio - 0.5) * 255.0);
 
             // Set the pixel in the Bitmap (ARGB format)
             uint32_t *pixel = (uint32_t *) pixels + h * width + w;
@@ -146,9 +215,10 @@ Java_com_example_arbenchapp_util_ImageConversionUtil_convertWithGradientBW(
             float value = dataArray[index];
 
             // Get the color for the chosen channel
-            int red = value < 0.5 ? 255 - (int)(2.0 * (0.5 - value) * 255.0) : 0;
-            int green = value < 0.5 ? (int)(2.0 * value * 255.0) : (int)(((-2.0 * value) + 2) * 255.0);
-            int blue = value < 0.5 ? 0 : (int)(2.0 * (value - 0.5) * 255.0);
+            int red = value < 0.5 ? 255 - (int) (2.0 * (0.5 - value) * 255.0) : 0;
+            int green = value < 0.5 ? (int) (2.0 * value * 255.0) : (int) (((-2.0 * value) + 2) *
+                                                                           255.0);
+            int blue = value < 0.5 ? 0 : (int) (2.0 * (value - 0.5) * 255.0);
 
             // Set the pixel in the Bitmap (ARGB format)
             uint32_t *pixel = (uint32_t *) pixels + h * width + w;

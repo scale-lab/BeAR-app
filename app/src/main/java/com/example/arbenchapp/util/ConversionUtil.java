@@ -27,69 +27,6 @@ import ai.onnxruntime.OrtException;
 public final class ConversionUtil {
     private ConversionUtil() {}
 
-    public static OnnxTensor bitmapToTensor(Bitmap bitmap, OrtEnvironment env) throws OrtException {
-        // Only convert bitmap format if necessary
-        if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
-            bitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
-        }
-
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        int channels = 3;
-        int batchSize = 1;
-        int totalPixels = width * height;
-
-        // Precompute background color components
-        final int bgColor = Color.WHITE;
-        final int bgRed = (bgColor >> 16) & 0xFF;
-        final int bgGreen = (bgColor >> 8) & 0xFF;
-        final int bgBlue = bgColor & 0xFF;
-
-        // Prepare float buffer directly
-        FloatBuffer floatBuffer = ByteBuffer.allocateDirect(batchSize * channels * width * height * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer();
-
-        // Get pixel data
-        int[] intValues = new int[totalPixels];
-        bitmap.getPixels(intValues, 0, width, 0, 0, width, height);
-
-        // Process pixels directly in memory
-        final float scale = 1.0f / 255.0f;
-        for (int i = 0; i < totalPixels; i++) {
-            int pixel = intValues[i];
-            int alpha = (pixel >> 24) & 0xFF;
-
-            // Extract or blend colors
-            float red, green, blue;
-            if (alpha == 255) {
-                red = ((pixel >> 16) & 0xFF) * scale;
-                green = ((pixel >> 8) & 0xFF) * scale;
-                blue = (pixel & 0xFF) * scale;
-            } else {
-                // Alpha blending with background
-                float alphaRatio = alpha * scale;
-                float inverseAlphaRatio = 1.0f - alphaRatio;
-
-                int pixelRed = (pixel >> 16) & 0xFF;
-                int pixelGreen = (pixel >> 8) & 0xFF;
-                int pixelBlue = pixel & 0xFF;
-
-                red = (pixelRed * alphaRatio + bgRed * inverseAlphaRatio) * scale;
-                green = (pixelGreen * alphaRatio + bgGreen * inverseAlphaRatio) * scale;
-                blue = (pixelBlue * alphaRatio + bgBlue * inverseAlphaRatio) * scale;
-            }
-
-            // Write directly to float buffer positions
-            floatBuffer.put(i, red);
-            floatBuffer.put(i + totalPixels, green);
-            floatBuffer.put(i + 2 * totalPixels, blue);
-        }
-
-        long[] shape = {batchSize, channels, height, width};
-        return OnnxTensor.createTensor(env, floatBuffer, shape);
-    }
-
     public static Tensor bitmapToTensor(Bitmap bitmap) {
         // Normalize the image using ImageNet mean and standard deviation
         float[] normMeanRGB = {0.485f, 0.456f, 0.406f};

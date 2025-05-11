@@ -13,6 +13,7 @@ import com.example.arbenchapp.datatypes.SplitInfo;
 import com.example.arbenchapp.monitor.HardwareMonitor;
 import com.example.arbenchapp.monitor.ProcessingResultListener;
 import com.example.arbenchapp.util.ConversionUtil;
+import com.example.arbenchapp.util.ImageConversionUtil;
 
 import org.pytorch.Module;
 
@@ -98,12 +99,10 @@ public class MTLBox implements ProcessingResultListener {
             System.out.println("ORTEXCEPTION decoders: " + Arrays.toString(decoderFiles));
             OrtEnvironment env = OrtEnvironment.getEnvironment();
             try {
-                // TODO: Make sure encoder is on NPU and decoder is on CPU/multithreaded
-                // TODO: Get code from java_benchmark branch
                 // warm up conversion util
-                ConversionUtil.bitmapToTensor(default_bm, env);
+                ImageConversionUtil.bitmapToTensor(default_bm, env);
                 // create sessions
-                OrtSession encoderSession = createNNSession(encoderFile, env);
+                OrtSession encoderSession = createSession(encoderFile, env);
                 OrtSession[] decoderSessions = new OrtSession[decoderFiles.length];
                 for (int i = 0; i < decoderFiles.length; i++) {
                     System.out.println("ORTEXCEPTION decoder at " + i + ": " + decoderFiles[i].getPath());
@@ -162,9 +161,10 @@ public class MTLBox implements ProcessingResultListener {
             OrtEnvironment env = OrtEnvironment.getEnvironment();
             try {
                 // warm up conversion util
-                ConversionUtil.bitmapToTensor(default_bm, env);
+                ImageConversionUtil.bitmapToTensor(default_bm, env);
                 // create session
-                OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
+                OrtSession session = createNNSession(file, env);
+                // OrtSession session = env.createSession(file.getPath(), new OrtSession.SessionOptions());
                 this.monitor = new HardwareMonitor.PyTorchModelMonitor(session, env, viewSettings(), context);
                 this.metrics = new HardwareMonitor.HardwareMetrics(context);
             } catch (OrtException e) {
@@ -195,6 +195,9 @@ public class MTLBox implements ProcessingResultListener {
                 if (!prefs.getBoolean("split_pipeline", false)) {
                     return runSeqSplit(bitmap);
                 } else {
+                    if (lastTime == 0) {
+                        lastTime = System.nanoTime();
+                    }
                     runSplit(bitmap);
                     return null;
                 }
@@ -207,8 +210,25 @@ public class MTLBox implements ProcessingResultListener {
         }
     }
 
+    public static void clearFiles(Context context) {
+        File directory = context.getFilesDir();
+        if (directory != null && directory.exists()) {
+            deleteRecursive(directory);
+        }
+    }
+
+    private static void deleteRecursive(File fileOrDirectory) {
+        if (fileOrDirectory.isDirectory()) {
+            for (File child : fileOrDirectory.listFiles()) {
+                deleteRecursive(child);
+            }
+        }
+        fileOrDirectory.delete();
+    }
+
     public File getFile(Context context, String filename, String prefix) {
         System.out.println("FILFELNAME: " + context.getFilesDir());
+        // clearFiles(context);
         File file = new File(context.getFilesDir(), filename);
         if (!file.exists()) {
             System.out.println("FILFELNAME prefix + filename: " + prefix + filename);
@@ -224,6 +244,22 @@ public class MTLBox implements ProcessingResultListener {
             }
         }
         return file;
+    }
+
+    public int resetMetricsRecording() {
+        // called when the camera is paused
+        if (monitor == null) {
+            if (splitInfo == null) {
+                return 1;
+            } else if (splitInfo.getMonitor() == null) {
+                return 1;
+            } else {
+                splitInfo.getMonitor().setStarted(false);
+            }
+        } else {
+            monitor.setStarted(false);
+        }
+        return 0;
     }
 
     private MTLBoxStruct runFromPt(Bitmap bitmap) {
@@ -377,14 +413,9 @@ public class MTLBox implements ProcessingResultListener {
     @Override
     public void onProcessingComplete(Bitmap input, Map<String, Bitmap> output) {
         double gap;
-        if (lastTime == 0) {
-            gap = 0;
-            lastTime = System.nanoTime();
-        } else {
-            double newTime = System.nanoTime();
-            gap = (newTime - lastTime) / 1_000_000;
-            lastTime = newTime;
-        }
+        double newTime = System.nanoTime();
+        gap = (newTime - lastTime) / 1_000_000;
+        lastTime = newTime;
         System.out.println("uyoabdsfilun: Processing complete - " + gap + " ms");
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         if (splitInfo.getMonitor().getCurrentTime() > secondsBetweenMetrics ||
@@ -407,26 +438,33 @@ public class MTLBox implements ProcessingResultListener {
         }
     }
 
-    private OrtSession createNNSession(File file, OrtEnvironment env) throws OrtException {
-        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
-        EnumSet<NNAPIFlags> nnapiFlags = EnumSet.of(
-                NNAPIFlags.CPU_DISABLED,
-                NNAPIFlags.USE_FP16
-        );
-        options.addNnapi(nnapiFlags);
+    private OrtSession createNNSession(File file, OrtEnvironment env) {
         try {
+            OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+            EnumSet<NNAPIFlags> nnapiFlags = EnumSet.of(
+                    NNAPIFlags.CPU_DISABLED,
+                    NNAPIFlags.USE_FP16
+            );
+            options.addNnapi(nnapiFlags);
+            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
             return env.createSession(file.getPath(), options);
         } catch (OrtException e) {
+            System.err.println("ORTEXCEPTION: " + e);
             return createSession(file, env);
         }
     }
 
-    private OrtSession createSession(File file, OrtEnvironment env) throws OrtException {
-        OrtSession.SessionOptions options = new OrtSession.SessionOptions();
-        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
-        options.setIntraOpNumThreads(1);
-        options.setInterOpNumThreads(1);
-        return env.createSession(file.getPath(), options);
+    private OrtSession createSession(File file, OrtEnvironment env) {
+        try {
+            OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.BASIC_OPT);
+            options.setIntraOpNumThreads(1);
+            options.setInterOpNumThreads(1);
+            return env.createSession(file.getPath(), options);
+        } catch (OrtException e) {
+            System.err.println("ORTEXCEPTION: " + e);
+            return null;
+        }
     }
 
 }

@@ -13,6 +13,7 @@ import android.util.Log;
 import com.example.arbenchapp.datatypes.MTLBoxStruct;
 import com.example.arbenchapp.datatypes.Settings;
 import com.example.arbenchapp.util.ConversionUtil;
+import com.example.arbenchapp.util.ImageConversionUtil;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
 
@@ -240,8 +241,16 @@ public class HardwareMonitor {
         private final ProcessingResultListener listener;
 
         private final BlockingQueue<OrtSession.Result> decoderQueue = new LinkedBlockingQueue<>(1);
-        private final ExecutorService encoderService = Executors.newSingleThreadExecutor();
-        private final ExecutorService decoderService = Executors.newSingleThreadExecutor();
+        private final ExecutorService encoderService = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setPriority(Thread.MAX_PRIORITY); // High priority for encoder
+            return t;
+        });
+        private final ExecutorService decoderService = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setPriority(Thread.NORM_PRIORITY);
+            return t;
+        });
 
         private final OrtSession encoder;
         private final OrtSession[] decoders;
@@ -251,10 +260,7 @@ public class HardwareMonitor {
         private final String inputName;
 
         private final Object dataLock = new Object();
-        private final BlockingQueue<Double> startFrameTimes = new LinkedBlockingQueue<>(2);
-        private final BlockingQueue<Double> endFrameTimes = new LinkedBlockingQueue<>(2);
-        private final BlockingQueue<Double> startInferenceFrameTimes = new LinkedBlockingQueue<>(2);
-        private final BlockingQueue<Double> endInferenceFrameTimes = new LinkedBlockingQueue<>(2);
+        private final BlockingQueue<Double> frameTimes = new LinkedBlockingQueue<>(4);
 
         private boolean started;
         private HardwareMetrics startMetrics;
@@ -345,13 +351,12 @@ public class HardwareMonitor {
                 try {
                     System.out.println("uyoabdsfilun: Start encoder.");
                     double startTime = System.nanoTime();
-                    startInferenceFrameTimes.put(startTime);
-                    startFrameTimes.put(startTime);
                     OrtSession.Result result = runEncoder(bitmap);
-                    decoderQueue.put(result);
                     double endTime = System.nanoTime();
+                    frameTimes.put(startTime);
+                    frameTimes.put(endTime);
+                    decoderQueue.put(result);
                     System.out.println("uyoabdsfilun: Encoder time: " + ((endTime - startTime) / 1_000_000));
-                    endInferenceFrameTimes.add(endTime);
                     listener.requestNextFrame();
                 } catch (InterruptedException e) {
                     System.err.println("QUEUE RUN ERROR: Interrupt while taking from encoder queue.");
@@ -373,17 +378,15 @@ public class HardwareMonitor {
                     synchronized (dataLock) {
                         numFrames++;
                         double endTime = System.nanoTime();
-                        endFrameTimes.put(endTime);
-                        double endInferenceFrameTime = endInferenceFrameTimes.take();
-                        double startInferenceFrameTime = startInferenceFrameTimes.take();
-                        double endFrameTime = endFrameTimes.take();
-                        double startFrameTime = startFrameTimes.take();
+                        double startFrameTime = frameTimes.take();
+                        double endInferenceFrameTime = frameTimes.take();
+
                         if (numFrames == 1) {
-                            avgTime = endInferenceFrameTime - startInferenceFrameTime;
-                            avgTimePP = endFrameTime - startFrameTime;
+                            avgTime = endInferenceFrameTime - startFrameTime;
+                            avgTimePP = endTime - startFrameTime;
                         } else {
-                            avgTime = ((avgTime * (numFrames - 1)) / numFrames) + ((endInferenceFrameTime - startInferenceFrameTime) / numFrames);
-                            avgTimePP = ((avgTimePP * (numFrames - 1)) / numFrames) + ((endFrameTime - startFrameTime) / numFrames);
+                            avgTime = ((avgTime * (numFrames - 1)) / numFrames) + ((endInferenceFrameTime - startFrameTime) / numFrames);
+                            avgTimePP = ((avgTimePP * (numFrames - 1)) / numFrames) + ((endTime - startFrameTime) / numFrames);
                         }
                     }
                     listener.onProcessingComplete(bitmap, output);
@@ -406,12 +409,7 @@ public class HardwareMonitor {
             numFrames++;
 
             startInfTime = System.nanoTime();
-            double startConversionTime = System.nanoTime();
-            OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
-            System.out.println("OSDIFOHLS conversion time: " + ((System.nanoTime() - startConversionTime) / 1_000_000) + " ms");
-            Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
-
-            OrtSession.Result featureMap = encoder.run(inputs);
+            OrtSession.Result featureMap = runEncoder(input);
             endInfTime = System.nanoTime();
             double startDecoderTime = System.nanoTime();
             Map<String, Bitmap> output = runDecoders(featureMap);
@@ -429,7 +427,7 @@ public class HardwareMonitor {
         }
 
         public OrtSession.Result runEncoder(Bitmap input) throws OrtException {
-            OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
+            OnnxTensor inp = ImageConversionUtil.bitmapToTensor(input, env);
             Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
             return encoder.run(inputs);
         }
@@ -542,11 +540,13 @@ public class HardwareMonitor {
         }
 
         public boolean hasStarted() { return started; }
+
+        public void setStarted(boolean newStarted) { started = newStarted; }
     }
 
     public static class PyTorchModelMonitor {
         private final Module model;
-        private final OrtSession session;
+        private OrtSession session;
         private final OrtEnvironment env;
         private final Settings settings;
         private final String inputName;
@@ -649,7 +649,7 @@ public class HardwareMonitor {
                     System.err.println("ERROR: Session should not be null.");
                     return null;
                 }
-                OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
+                OnnxTensor inp = ImageConversionUtil.bitmapToTensor(input, env);
                 Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
                 startInfTime = System.nanoTime();
                 OrtSession.Result outputs = session.run(inputs);
@@ -742,6 +742,8 @@ public class HardwareMonitor {
 
         public boolean hasStarted() { return started; }
 
+        public void setStarted(boolean newStarted) { started = newStarted; }
+
         public HardwareMetrics executeAndMonitor(Bitmap input) throws OrtException {
             System.out.println("ONNX: " + Debug.getRuntimeStats());
             System.out.println("ONNX should get runtime: " + prefs.getBoolean("runtime_model", true));
@@ -760,7 +762,7 @@ public class HardwareMonitor {
                     System.err.println("ERROR: Session should not be null.");
                     return null;
                 }
-                OnnxTensor inp = ConversionUtil.bitmapToTensor(input, env);
+                OnnxTensor inp = ImageConversionUtil.bitmapToTensor(input, env);
                 Map<String, ? extends OnnxTensorLike> inputs = Map.of(inputName, inp);
                 startTime = System.nanoTime();
                 OrtSession.Result outputs = session.run(inputs);
@@ -836,6 +838,10 @@ public class HardwareMonitor {
 
         public long getLastExecutionTime() {
             return lastExecutionTime;
+        }
+
+        public void changeSession(OrtSession newSession) {
+            session = newSession;
         }
     }
 }

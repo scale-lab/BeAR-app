@@ -52,6 +52,7 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
     private AppBarConfiguration mAppBarConfiguration;
     private ActivityMainBinding binding;
     private CameraUtil cameraUtil;
+    private boolean cameraOn;
     private ImagePageAdapter adapter;
     private List<ImagePage> imagePageList;
     private MTLBox mtlBox;
@@ -102,7 +103,8 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        cameraUtil = new CameraUtil(context, context);
+        // cameraUtil = new CameraUtil(context, context);
+        cameraOn = false;
 
         ViewPager2 viewPager2 = findViewById(R.id.viewPager);
         imagePageList = new ArrayList<>();
@@ -140,7 +142,17 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
                         ActivityCompat.requestPermissions(context, new String[]{android.Manifest.permission.CAMERA}, 101);
                         return;
                     }
-                    cameraUtil.startCamera();
+                    if (cameraOn) {
+                        cameraUtil.shutdown();
+                        int success = mtlBox.resetMetricsRecording();
+                        if (success == 1) {
+                            System.err.println("ERROR: Unable to reset metrics with camera shutdown.");
+                        }
+                    } else {
+                        cameraUtil = new CameraUtil(context, context);
+                        cameraUtil.startCamera();
+                    }
+                    cameraOn = !cameraOn;
                 }
             }
         });
@@ -366,9 +378,11 @@ public class MainActivity extends AppCompatActivity implements CameraUtil.Camera
 
     private String [] getMessages(Double tm, HardwareMonitor.HardwareMetrics metrics) {
         String nullMetricsMessage = "ERR: Returned NULL metrics";
+        boolean split = prefs.getBoolean("split_inference", false);
         int decimalPoints = 2;
         String timeDisplay = prefs.getBoolean("runtime_model", true) ?
-                "Inference Time: " + ConversionUtil.round(tm, decimalPoints) + " ms" : "";
+                "Inference Time: " + ConversionUtil.round(tm, decimalPoints) + " ms" :
+                split ? "Decoder Inf Time: " + ConversionUtil.round(tm, decimalPoints) + " ms" : "";
         String timeDisplayProcessing = prefs.getBoolean("runtime_total", true) ?
                 "Per Frame Runtime: " + ConversionUtil.round(metrics.executionWithProcessing, decimalPoints) + " ms" : "";
         String fps = prefs.getBoolean("fps", true) ?
