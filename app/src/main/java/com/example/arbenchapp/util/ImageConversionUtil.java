@@ -5,14 +5,64 @@ import android.graphics.Color;
 
 import org.pytorch.Tensor;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.IntStream;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import ai.onnxruntime.OnnxTensor;
+import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtException;
 
 public final class ImageConversionUtil {
     private ImageConversionUtil() {}
+
+    private static final Map<Integer, Integer[]> colors_map = Map.ofEntries(
+            Map.entry(0, new Integer[]{53, 13, 51}),
+            Map.entry(1, new Integer[]{160, 22, 50}),
+            Map.entry(2, new Integer[]{122, 53, 68}),
+            Map.entry(3, new Integer[]{221, 80, 51}),
+            Map.entry(4, new Integer[]{136, 142, 48}),
+            Map.entry(5, new Integer[]{78, 34, 68}),
+            Map.entry(6, new Integer[]{224, 164, 230}),
+            Map.entry(7, new Integer[]{167, 178, 127}),
+            Map.entry(8, new Integer[]{152, 213, 44}),
+            Map.entry(9, new Integer[]{125, 122, 149}),
+            Map.entry(10, new Integer[]{47, 146, 30}),
+            Map.entry(11, new Integer[]{177, 86, 183}),
+            Map.entry(12, new Integer[]{62, 42, 251}),
+            Map.entry(13, new Integer[]{139, 202, 160}),
+            Map.entry(14, new Integer[]{180, 136, 48}),
+            Map.entry(15, new Integer[]{176, 140, 195}),
+            Map.entry(16, new Integer[]{96, 180, 188}),
+            Map.entry(17, new Integer[]{250, 229, 244}),
+            Map.entry(18, new Integer[]{123, 209, 21}),
+            Map.entry(19, new Integer[]{161, 56, 207}),
+            Map.entry(20, new Integer[]{11, 124, 56}),
+            Map.entry(21, new Integer[]{202, 177, 144}),
+            Map.entry(22, new Integer[]{22, 109, 244}),
+            Map.entry(23, new Integer[]{197, 35, 16}),
+            Map.entry(24, new Integer[]{57, 98, 84}),
+            Map.entry(25, new Integer[]{20, 20, 198}),
+            Map.entry(26, new Integer[]{146, 17, 147}),
+            Map.entry(27, new Integer[]{94, 190, 155}),
+            Map.entry(28, new Integer[]{228, 89, 199}),
+            Map.entry(29, new Integer[]{191, 53, 182}),
+            Map.entry(30, new Integer[]{24, 188, 15}),
+            Map.entry(31, new Integer[]{235, 218, 18}),
+            Map.entry(32, new Integer[]{202, 16, 163}),
+            Map.entry(33, new Integer[]{106, 239, 196}),
+            Map.entry(34, new Integer[]{70, 110, 27}),
+            Map.entry(35, new Integer[]{7, 136, 154}),
+            Map.entry(36, new Integer[]{232, 32, 56}),
+            Map.entry(37, new Integer[]{228, 233, 202}),
+            Map.entry(38, new Integer[]{237, 0, 35}),
+            Map.entry(39, new Integer[]{203, 233, 240})
+    );
 
     private static int[][] colors = {
             {53, 13, 51},
@@ -61,6 +111,7 @@ public final class ImageConversionUtil {
         System.loadLibrary("native-lib"); // Load the native library
     }
 
+    private static native void nativeProcessPixels(Bitmap bitmap, FloatBuffer floatBuffer, int bgColor, int totalPixels);
     private static native void convertToBitmapNative(float[] data, int layers, int channels, int height, int width, Bitmap bitmap, int[][] colors);
 
     private static native void convertToGrayscale(float[] data, int height, int width, Bitmap bitmap);
@@ -71,6 +122,27 @@ public final class ImageConversionUtil {
 //    public static Bitmap DefaultConvert() {
 //
 //    }
+
+    public static OnnxTensor bitmapToTensor(Bitmap bitmap, OrtEnvironment env) throws OrtException {
+        if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
+            bitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
+        }
+
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        int channels = 3;
+        int batchSize = 1;
+        int totalPixels = width * height;
+
+        FloatBuffer floatBuffer = ByteBuffer.allocateDirect(batchSize * channels * width * height * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer();
+
+        nativeProcessPixels(bitmap, floatBuffer, Color.WHITE, totalPixels);
+
+        long[] shape = {batchSize, channels, height, width};
+        return OnnxTensor.createTensor(env, floatBuffer, shape);
+    }
 
     public static Bitmap BWConvert(Tensor tensor, int width, int height) {
         // Step 1: Extract tensor data as a float array

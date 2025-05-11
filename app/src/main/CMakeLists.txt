@@ -6,3 +6,4 @@ find_library(log-lib log)
 find_library(jnigraphics-lib jnigraphics)
 
 target_link_libraries(native-lib android ${log-lib} ${jnigraphics-lib})
+target_compile_options(native-lib PRIVATE -O3 -ffast-math)

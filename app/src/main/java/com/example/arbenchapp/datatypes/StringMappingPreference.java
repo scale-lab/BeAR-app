@@ -43,11 +43,16 @@ public class StringMappingPreference extends DialogPreference {
         setPositiveButtonText(android.R.string.ok);
         setNegativeButtonText(android.R.string.cancel);
 
-        // Set preference layout
         setLayoutResource(R.layout.preference_string_mapping);
 
-        // Initialize with default options - customize these as needed
-        optionsList = new String[]{"DEFAULT", "BLACK AND WHITE", "COLOR", "ARGMAX COLOR", "B&W GRADIENT", "COLOR GRADIENT"};
+        optionsList = new String[]{
+                "DEFAULT",
+                "BLACK AND WHITE",
+                "COLOR",
+                "ARGMAX COLOR",
+                "B&W GRADIENT",
+                "COLOR GRADIENT"
+        };
 
         // Load saved mappings
         loadMappings();
