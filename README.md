@@ -49,6 +49,24 @@ Most settings here should be straightforward. **It is essential that all outputs
 </div>
 
 ## 🤖 Demos
+### Run inference on a single image
+Video
+### Run inference on a video stream
+Video
+### Run a split model
+Video
+### Add a model
+Currently, the only way to add a new model to the app is via the `assets` folder before compile time. This is easy to do if you have Android Studio set up and are willing to rebuild the project. The `assets` folder directory tree is as follows:
+```
+assets
+- decoders
+- encoders
+- full
+```
+Your model should be an ONNX file for compatability purposes. More in-depth changes would have to be made to support other file types.
+### Add a postprocessing method
+This requires changing the source code, though most changes are simply adding names to existing lists/enums.
+Video
 
 ## 🔨 Known Issues
 - Some models don't work, and selecting them could break the app and require a difficult process of removing the file, clearing the cache using `clearFiles(Context context)` - commented out in `MTLBox.java`, and rebuilding from the source code. The only known broken model right now is `swin_tiny_nyud-int8-fused.onnx`, which has been removed from the codebase.
