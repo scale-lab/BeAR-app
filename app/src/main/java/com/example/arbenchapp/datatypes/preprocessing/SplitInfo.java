@@ -1,4 +1,4 @@
-package com.example.arbenchapp.datatypes;
+package com.example.arbenchapp.datatypes.preprocessing;
 
 import com.example.arbenchapp.monitor.HardwareMonitor;
 

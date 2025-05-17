@@ -1,20 +1,17 @@
-package com.example.arbenchapp.datatypes;
+package com.example.arbenchapp.datatypes.postprocessing;
 
 import android.content.Context;
-import android.content.res.AssetManager;
 import android.content.res.TypedArray;
 import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 
-import androidx.annotation.Nullable;
 import androidx.preference.DialogPreference;
 
 import com.example.arbenchapp.R;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;

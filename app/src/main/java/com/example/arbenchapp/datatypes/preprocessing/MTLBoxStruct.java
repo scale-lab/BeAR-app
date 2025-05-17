@@ -1,4 +1,4 @@
-package com.example.arbenchapp.datatypes;
+package com.example.arbenchapp.datatypes.preprocessing;
 
 import android.content.Context;
 import android.content.SharedPreferences;

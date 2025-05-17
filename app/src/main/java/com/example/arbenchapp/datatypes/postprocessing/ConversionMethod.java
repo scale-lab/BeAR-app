@@ -1,4 +1,4 @@
-package com.example.arbenchapp.datatypes;
+package com.example.arbenchapp.datatypes.postprocessing;
 
 public enum ConversionMethod {
     DEFAULT,

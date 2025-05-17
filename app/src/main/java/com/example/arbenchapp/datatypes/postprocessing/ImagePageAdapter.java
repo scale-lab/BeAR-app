@@ -1,7 +1,6 @@
-package com.example.arbenchapp.datatypes;
+package com.example.arbenchapp.datatypes.postprocessing;
 
 import android.content.Context;
-import android.content.res.Configuration;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;

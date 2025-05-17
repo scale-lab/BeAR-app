@@ -1,4 +1,4 @@
-package com.example.arbenchapp.datatypes;
+package com.example.arbenchapp.datatypes.postprocessing;
 
 import android.content.Context;
 import android.content.res.TypedArray;
