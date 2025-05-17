@@ -8,7 +8,6 @@ import android.graphics.YuvImage;
 import android.media.Image;
 import android.util.Log;
 import android.util.Size;
-import android.view.Surface;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.OptIn;
@@ -17,7 +16,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.content.ContextCompat;
 import androidx.preference.PreferenceManager;
 
-import com.example.arbenchapp.datatypes.Resolution;
+import com.example.arbenchapp.datatypes.preprocessing.Resolution;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.ByteArrayOutputStream;

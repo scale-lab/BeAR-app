@@ -2,12 +2,9 @@ package com.example.arbenchapp.util;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Color;
-import android.graphics.Paint;
 import android.os.Environment;
 
-import com.example.arbenchapp.datatypes.ConversionMethod;
+import com.example.arbenchapp.datatypes.postprocessing.ConversionMethod;
 
 import org.pytorch.Tensor;
 import org.pytorch.torchvision.TensorImageUtils;
@@ -15,14 +12,7 @@ import org.pytorch.torchvision.TensorImageUtils;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
 import java.text.DecimalFormat;
-
-import ai.onnxruntime.OnnxTensor;
-import ai.onnxruntime.OrtEnvironment;
-import ai.onnxruntime.OrtException;
 
 public final class ConversionUtil {
     private ConversionUtil() {}

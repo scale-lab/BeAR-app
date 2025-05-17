@@ -12,12 +12,13 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.Menu;
 
-import com.example.arbenchapp.datatypes.ImagePage;
-import com.example.arbenchapp.datatypes.ImagePageAdapter;
-import com.example.arbenchapp.datatypes.MTLBoxStruct;
-import com.example.arbenchapp.datatypes.Resolution;
-import com.example.arbenchapp.datatypes.Settings;
+import com.example.arbenchapp.datatypes.postprocessing.ImagePage;
+import com.example.arbenchapp.datatypes.postprocessing.ImagePageAdapter;
+import com.example.arbenchapp.datatypes.preprocessing.MTLBoxStruct;
+import com.example.arbenchapp.datatypes.preprocessing.Resolution;
+import com.example.arbenchapp.datatypes.preprocessing.Settings;
 import com.example.arbenchapp.monitor.HardwareMonitor;
+import com.example.arbenchapp.monitor.MTLBox;
 import com.example.arbenchapp.util.CameraUtil;
 import com.example.arbenchapp.util.ConversionUtil;
 import com.google.android.material.navigation.NavigationView;

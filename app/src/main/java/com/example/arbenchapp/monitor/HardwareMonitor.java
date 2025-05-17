@@ -10,8 +10,7 @@ import android.os.BatteryManager;
 import android.os.Debug;
 import android.util.Log;
 
-import com.example.arbenchapp.datatypes.MTLBoxStruct;
-import com.example.arbenchapp.datatypes.Settings;
+import com.example.arbenchapp.datatypes.preprocessing.Settings;
 import com.example.arbenchapp.util.ConversionUtil;
 import com.example.arbenchapp.util.ImageConversionUtil;
 import com.google.common.reflect.TypeToken;
@@ -30,13 +29,11 @@ import java.util.Objects;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxTensorLike;

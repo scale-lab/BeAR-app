@@ -12,7 +12,7 @@ import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 import androidx.preference.PreferenceFragmentCompat;
 
-import com.example.arbenchapp.datatypes.MultiSelectListPreference;
+import com.example.arbenchapp.datatypes.postprocessing.MultiSelectListPreference;
 
 import java.util.ArrayList;
 import java.util.HashSet;

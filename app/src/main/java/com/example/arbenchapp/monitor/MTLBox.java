@@ -1,4 +1,4 @@
-package com.example.arbenchapp;
+package com.example.arbenchapp.monitor;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -6,13 +6,11 @@ import android.graphics.Bitmap;
 
 import androidx.preference.PreferenceManager;
 
-import com.example.arbenchapp.datatypes.MTLBoxStruct;
-import com.example.arbenchapp.datatypes.ModelType;
-import com.example.arbenchapp.datatypes.Settings;
-import com.example.arbenchapp.datatypes.SplitInfo;
-import com.example.arbenchapp.monitor.HardwareMonitor;
-import com.example.arbenchapp.monitor.ProcessingResultListener;
-import com.example.arbenchapp.util.ConversionUtil;
+import com.example.arbenchapp.MainActivity;
+import com.example.arbenchapp.datatypes.preprocessing.MTLBoxStruct;
+import com.example.arbenchapp.datatypes.preprocessing.ModelType;
+import com.example.arbenchapp.datatypes.preprocessing.Settings;
+import com.example.arbenchapp.datatypes.preprocessing.SplitInfo;
 import com.example.arbenchapp.util.ImageConversionUtil;
 
 import org.pytorch.Module;

@@ -20,14 +20,14 @@
         android:dependency="split_inference"
         />
 
-    <com.example.arbenchapp.datatypes.AssetFilePreference
+    <com.example.arbenchapp.datatypes.postprocessing.AssetFilePreference
         android:key="model_file_selection"
         android:title="Select Model File"
         android:defaultValue=""
         app:assetsDirectory="full"
         />
 
-    <com.example.arbenchapp.datatypes.AssetFilePreference
+    <com.example.arbenchapp.datatypes.postprocessing.AssetFilePreference
         android:key="encoder_selection"
         android:title="Select Encoder"
         android:defaultValue=""
@@ -35,14 +35,14 @@
         android:dependency="split_inference"
         />
 
-    <com.example.arbenchapp.datatypes.MultiSelectListPreference
+    <com.example.arbenchapp.datatypes.postprocessing.MultiSelectListPreference
         android:key="decoder_selection"
         android:title="Select Decoder(s)"
         app:assetsDirectory="decoders"
         android:dependency="split_inference"
         android:defaultValue="@array/empty_array"/>
 
-    <com.example.arbenchapp.datatypes.StringMappingPreference
+    <com.example.arbenchapp.datatypes.postprocessing.StringMappingPreference
         android:key="output_option_mappings"
         android:title="Output Option Mappings"
         android:summary="Define a map between model outputs and postprocessing method" />

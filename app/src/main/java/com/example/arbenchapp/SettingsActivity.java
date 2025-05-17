@@ -10,8 +10,8 @@ import androidx.preference.EditTextPreference;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceFragmentCompat;
 
-import com.example.arbenchapp.datatypes.MultiSelectListPreference;
-import com.example.arbenchapp.datatypes.StringMappingPreference;
+import com.example.arbenchapp.datatypes.postprocessing.MultiSelectListPreference;
+import com.example.arbenchapp.datatypes.postprocessing.StringMappingPreference;
 import com.example.arbenchapp.ui.settings.MultiSelectDialogFragment;
 import com.example.arbenchapp.ui.settings.SettingsFragment;
 
