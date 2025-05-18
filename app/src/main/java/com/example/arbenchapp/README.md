@@ -8,7 +8,7 @@ being sent back to `MTLBox` and returned to `MainActivity` for the resultant ima
 primarily in the callback system and in-between processing. Currently, the in-between processing is hard coded for a specific encoder
 output. More specific information can be found in the READMEs in `datatypes`, `monitor`, `ui`, and `util`.
 <div align="center">
-  <img width="90%" src="../../../../../../img/BeAR_process_diagram.jpg"><br />
+  <img width="90%" src="../../../../../../../img/BeAR_process_diagram.jpg"><br />
 </div>
 
 ## Settings
