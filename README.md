@@ -1,4 +1,4 @@
-# BeAR: Benchmarking in Augmented Reality<img align="right" width="15%" src="img/BeAR.png">
+# BeAR: Benchmarking in Augmented Reality <img align="right" width="15%" src="img/BeAR.png">
 Android application for AR benchmarking using MTL models. Developed by Austin Funk as part of his Honors thesis in computer engineering at Brown University.
 ## 🔍 Introduction
 BeAR provides various benchmarking metrics for Multi-Task Learning (MTL) models. The purpose of this app is to provide flexible testing and benchmarking on edge devices without requiring extensive dependencies, such as Google's ARCore. Specific runtime improvements have been implemented as well, notably support for pipelined execution of the encoder and decoder(s).
@@ -12,10 +12,25 @@ BeAR provides various benchmarking metrics for Multi-Task Learning (MTL) models.
 - [ ] Support devices without NPUs by searching for alternative processors
 - [ ] Circumvent Android's automatic closing of the devices camera after X amount of time
 ## 📏 Installation
-- Option 1: Download Android Studio and build from this repository
-- Option 2: (NOT YET SUPPORTED) Download the APK provided
+- Option 1: Download Android Studio and build from this repository. Be sure to install the `assets` folder following the instructions below.
+- Option 2: (NOT YET SUPPORTED) Download the APK provided.
 ## 🔧 Hardware Requirements
 This app only works for Android devices with SDK>=26, though SDK=34+ is recommended. Some key functions, specifically photo picking and camera operation, require permission that can be activated once in-app via a pop up. It is also recommended for your device to have an NPU (preferable) or GPU.
+## 📁 Assets
+BeAR currently requires a dedicated folder for models **before compile time.** This folder must be organized like so:
+- `assets`
+  - `decoders`
+  - `encoders`
+  - `full`
+
+The `assets` folder must be in the following location to be recognized by the Android compiler:
+- `BeAR_APP` (Top level directory)
+  - `app`
+    - `src`
+      - `main`
+        - `assets` <--
+
+The version of the `assets` folder used in Austin's thesis can be found on Google Drive here: https://drive.google.com/drive/folders/1dQYM72Gw093bTJqF8llspFFHK6Uat6bh?usp=sharing
 ## 💻 Usage
 Before attempting to run the model, it is highly recommended that you peruse the settings and verify that everything is set up as you want it. Once all settings are to your liking, simply press the image icon in the bottom right corner of your screen.<br />
 <div align="center">
@@ -48,22 +63,6 @@ Most settings here should be straightforward. **It is essential that all outputs
   <img width="15%" src="img/BeAR_model.jpg"><br />
 </div>
 
-## 🤖 Demos
-### Run inference on a single image
-Video
-### Run inference on a video stream
-Video
-### Run a split model
-Video
-### Add a model
-Currently, the only way to add a new model to the app is via the `assets` folder before compile time. This is easy to do if you have Android Studio set up and are willing to rebuild the project. The `assets` folder directory tree is as follows:
-```
-assets
-- decoders
-- encoders
-- full
-```
-Your model should be an ONNX file for compatability purposes. More in-depth changes would have to be made to support other file types.
 ### Add a postprocessing method
 This requires changing the source code, though most changes are simply adding names to existing lists/enums.
 Video
@@ -71,6 +70,11 @@ Video
 ## 🔨 Known Issues
 - Some models don't work, and selecting them could break the app and require a difficult process of removing the file, clearing the cache using `clearFiles(Context context)` - commented out in `MTLBox.java`, and rebuilding from the source code. The only known broken model right now is `swin_tiny_nyud-int8-fused.onnx`, which has been removed from the codebase.
 - Some settings, specifically when selecting split pieces of models, sometimes don't save when they're expected to. This is because the interface is not built by Android, so it's more prone to bugs.
+
+## 🤖 Developer Information
+If you're looking to make changes to this app, your best resources will be the nested READMEs in this project. Specifically, you should look in the following folders:
+- Path 1
+- Path 2
 
 ## 🙌 Acknowledgements
 Thank you to my advisor [Professor Sherief Reda](https://scale-lab.github.io/) for his guidance and expertise. Thank you to [Mahdi Boulila](https://github.com/MahdiBoulila) for his tireless mentorship and support. Thank you to [Harb Lin](https://engineering.brown.edu/people/shangran-lin) for his contributions to model-level acceleration.
