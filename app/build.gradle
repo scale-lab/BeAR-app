@@ -6,6 +6,13 @@ android {
     namespace 'com.example.arbenchapp'
     compileSdk 34
 
+    ndkVersion "26.1.10909125"
+    externalNativeBuild {
+        cmake {
+            path "src/main/CMakeLists.txt"
+        }
+    }
+
     defaultConfig {
         applicationId "com.example.arbenchapp"
         minSdk 26
@@ -34,6 +41,7 @@ android {
 dependencies {
     implementation libs.pytorch.android
     implementation libs.pytorch.android.torchvision
+    implementation libs.onnxruntime.android
     implementation libs.appcompat
     implementation libs.material
     implementation libs.constraintlayout
@@ -44,7 +52,17 @@ dependencies {
     implementation libs.firebase.crashlytics.buildtools
     implementation libs.commons.lang3
     implementation libs.tools.core
+    implementation libs.preference.ktx
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit
     androidTestImplementation libs.espresso.core
+    implementation libs.camera.core
+    implementation libs.camera.lifecycle
+    implementation libs.camera.view
+    implementation libs.camera.camera2
+    implementation libs.guava
+    implementation libs.gson
+    implementation libs.preference
+    implementation libs.appcompat.v161
+    debugImplementation libs.leakcanary.android
 }

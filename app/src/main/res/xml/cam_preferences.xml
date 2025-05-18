@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat
+        app:key="use_camera"
+        app:title="Enable Device Camera"
+        app:defaultValue="false"/>
+
+    <EditTextPreference
+        app:key="resolution"
+        app:title="Resolution (x,y)"
+        app:summary="WARNING: The input resolution MUST match the input resolution expected by the model!"
+        app:dialogTitle="Enter in format 'x,y'..."
+        app:defaultValue="224,224"
+        app:dependency="use_camera"/>
+
+    <CheckBoxPreference
+        app:key="frame_limiter"
+        app:title="Limit Metrics -- Frames"
+        app:defaultValue="false"
+        app:dependency="use_camera"/>
+
+    <EditTextPreference
+        app:key="update_freq_frames"
+        app:title="Metrics Update Frequency (Frames)"
+        app:dialogTitle="Enter value..."
+        app:defaultValue="30"
+        app:dependency="frame_limiter"/>
+
+    <CheckBoxPreference
+        app:key="time_limiter"
+        app:title="Limit Metrics -- Seconds"
+        app:defaultValue="false"
+        app:dependency="use_camera"/>
+
+    <EditTextPreference
+        app:key="update_freq_time"
+        app:title="Metrics Update Frequency (Seconds)"
+        app:dialogTitle="Enter value..."
+        app:defaultValue="5"
+        app:dependency="time_limiter"/>
+</androidx.preference.PreferenceScreen>

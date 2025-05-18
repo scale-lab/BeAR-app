@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <SwitchPreferenceCompat
+        android:key="runtime_model"
+        android:title="Runtime (Just Model)"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="runtime_total"
+        android:title="Runtime (With Postprocessing)"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="fps"
+        android:title="Frames per Second"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="cpu_usage"
+        android:title="CPU Usage Percent"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="cpu_usage_delta"
+        android:title="CPU Usage Percent Delta"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="cpu_thread_time"
+        android:title="CPU Thread Time"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="memory_usage"
+        android:title="Memory Usage"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="battery_usage"
+        android:title="Battery Usage"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="power_consumed"
+        android:title="Power Consumed"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="temp_change"
+        android:title="Temperature Change"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="temp_final"
+        android:title="Final Temperature"
+        android:defaultValue="true" />
+    <SwitchPreferenceCompat
+        android:key="current_avg"
+        android:title="Average Current"
+        android:defaultValue="true" />
+</androidx.preference.PreferenceScreen>

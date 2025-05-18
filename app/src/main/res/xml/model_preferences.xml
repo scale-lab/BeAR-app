@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat
+        android:key="run_inference"
+        android:title="Run Inference"
+        android:defaultValue="true" />
+
+    <SwitchPreferenceCompat
+        android:key="split_inference"
+        android:title="Split Execution?"
+        android:defaultValue="false"
+        android:dependency="run_inference"
+        />
+
+    <SwitchPreferenceCompat
+        android:key="split_pipeline"
+        android:title="Pipelined Execution?"
+        android:defaultValue="false"
+        android:dependency="split_inference"
+        />
+
+    <com.example.arbenchapp.datatypes.postprocessing.AssetFilePreference
+        android:key="model_file_selection"
+        android:title="Select Model File"
+        android:defaultValue=""
+        app:assetsDirectory="full"
+        />
+
+    <com.example.arbenchapp.datatypes.postprocessing.AssetFilePreference
+        android:key="encoder_selection"
+        android:title="Select Encoder"
+        android:defaultValue=""
+        app:assetsDirectory="encoders"
+        android:dependency="split_inference"
+        />
+
+    <com.example.arbenchapp.datatypes.postprocessing.MultiSelectListPreference
+        android:key="decoder_selection"
+        android:title="Select Decoder(s)"
+        app:assetsDirectory="decoders"
+        android:dependency="split_inference"
+        android:defaultValue="@array/empty_array"/>
+
+    <com.example.arbenchapp.datatypes.postprocessing.StringMappingPreference
+        android:key="output_option_mappings"
+        android:title="Output Option Mappings"
+        android:summary="Define a map between model outputs and postprocessing method" />
+</androidx.preference.PreferenceScreen>

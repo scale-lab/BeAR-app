@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">ARBenchApp</string>
+    <string name="app_name">BeAR App</string>
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
-    <string name="nav_header_title">ARBench</string>
+    <string name="nav_header_title">BeAR App</string>
     <string name="nav_header_subtitle">sherief_reda@brown.edu</string>
     <string name="nav_header_desc">Navigation header</string>
     <string name="action_settings">Settings</string>
@@ -11,4 +11,5 @@
     <string name="menu_upload">Upload</string>
     <string name="menu_capture">Capture</string>
     <string name="menu_model">Model</string>
+    <string name="image_scroll_content">Model Input/Output</string>
 </resources>
