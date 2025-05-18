@@ -6,7 +6,7 @@ image selector), it goes through minimal preprocessing in `MainActivity` and `MT
 `HardwareMonitor`, which both processes the image and collects metrics information. The data is sent to the `ConversionUtil` before 
 being sent back to `MTLBox` and returned to `MainActivity` for the resultant image to be displayed. This process changes when pipelining, 
 primarily in the callback system and in-between processing. Currently, the in-between processing is hard coded for a specific encoder
-output. More specific information can be found in the READMEs in `datatypes`, `monitor`, `ui`, and `util`.
+output. More specific information can be found in the READMEs in `datatypes`, `monitor`, and `util`.
 <div align="center">
   <img width="90%" src="../../../../../../../img/BeAR_process_diagram.jpg"><br />
 </div>
