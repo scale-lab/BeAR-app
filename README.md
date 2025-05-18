@@ -73,8 +73,11 @@ Video
 
 ## 🤖 Developer Information
 If you're looking to make changes to this app, your best resources will be the nested READMEs in this project. Specifically, you should look in the following folders:
-- Path 1
-- Path 2
+- app/src/main/cpp
+- app/src/main/java/com/example/arbenchapp
+- app/src/main/java/com/example/arbenchapp/datatypes
+- app/src/main/java/com/example/arbenchapp/monitor
+- app/src/main/java/com/example/arbenchapp/util
 
 ## 🙌 Acknowledgements
 Thank you to my advisor [Professor Sherief Reda](https://scale-lab.github.io/) for his guidance and expertise. Thank you to [Mahdi Boulila](https://github.com/MahdiBoulila) for his tireless mentorship and support. Thank you to [Harb Lin](https://engineering.brown.edu/people/shangran-lin) for his contributions to model-level acceleration.
