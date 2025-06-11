@@ -4,7 +4,9 @@
 
 #include <jni.h>
 #include <android/bitmap.h>
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
 #include <arm_neon.h>
+#endif
 #include <android/log.h>
 
 #define LOG_TAG "BitmapProcessing"
@@ -56,7 +58,7 @@ Java_com_example_arbenchapp_util_ImageConversionUtil_nativeProcessPixels(
     const int bgBlue = bgColor & 0xFF;
 
     // Get direct buffer access
-    float *floatBufferPtr = (float *) env->GetDirectBufferAddress(floatBuffer);
+    auto *floatBufferPtr = (float *) env->GetDirectBufferAddress(floatBuffer);
     auto *pixelPtr = static_cast<uint32_t *>(pixels);
 
     // Process all pixels
@@ -98,7 +100,7 @@ Java_com_example_arbenchapp_util_ImageConversionUtil_convertToBitmapNative(
     jsize numColors = env->GetArrayLength(colors);
     int colorArray[numColors][3];
     for (int i = 0; i < numColors; i++) {
-        jintArray color = (jintArray) env->GetObjectArrayElement(colors, i);
+        auto color = (jintArray) env->GetObjectArrayElement(colors, i);
         jint *colorComponents = env->GetIntArrayElements(color, nullptr);
         colorArray[i][0] = colorComponents[0]; // Red
         colorArray[i][1] = colorComponents[1]; // Green
